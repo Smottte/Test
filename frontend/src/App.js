@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000`;
+const API = process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || defaultApiBase;
+
 const photoFor = (hint) => {
   const map = {
     breakfast: 'https://images.unsplash.com/photo-1484723091739-30a097e8f929?w=500',
@@ -60,6 +62,7 @@ export default function App() {
 
   return <div style={{fontFamily:'Inter, sans-serif', background:'#f7f7fb', minHeight:'100vh', padding:20}}>
     <h1>🍽️ Pantry AI Planner</h1>
+    <p>API: <code>{API}</code></p>
     <p>Quick squares default to <b>{defaultType}</b> based on local time.</p>
 
     <div style={{display:'flex', gap:10, flexWrap:'wrap', marginBottom:16}}>

@@ -22,7 +22,17 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
 VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava")
 
 app = FastAPI(title="Pantry AI Planner")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://192.168.1.99:3000",
+    ],
+    allow_origin_regex=r"http://192\.168\.1\.\d+:3000",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 Base.metadata.create_all(bind=engine)
 seed_data()
 

@@ -14,25 +14,32 @@ Local-only planner: FastAPI + Postgres + React + Ollama.
 3. **Track usage memory**
    - Mark idea as cooked to log pantry usage and decrement item quantities.
 
-## Features
-- Pantry inventory + expiring-soon sorting.
-- AI meal generation with missing ingredients separated.
-- Time-based quick-access meal cards with images.
-- Weekly plan mode.
-- Image-based inventory from pantry/fridge or receipts.
-- Persistent meal ideas and ingredient usage logs.
-- Fully local services (no required cloud APIs).
+## LAN-safe API connectivity fix
+The frontend now uses this API base URL resolution order:
+1. `REACT_APP_API_BASE_URL`
+2. `REACT_APP_API_URL` (back-compat)
+3. Browser-derived fallback: `http(s)://<current-hostname>:8000`
 
-## Run
+So when you open `http://192.168.1.99:3000`, the fallback becomes `http://192.168.1.99:8000` automatically.
+
+## Run on your Ubuntu LAN server (192.168.1.99)
 ```bash
-docker compose up --build
+docker compose down
+docker compose up -d --build
 docker compose exec ollama ollama pull llama3.1
 docker compose exec ollama ollama pull llava
 ```
 
-Open:
-- UI: http://localhost:3000
-- API docs: http://localhost:8000/docs
+Then test from another LAN device:
+- Frontend: `http://192.168.1.99:3000`
+- Backend health: `http://192.168.1.99:8000/health`
+- Backend docs: `http://192.168.1.99:8000/docs`
+
+## Why this fixes `Failed to fetch`
+- Frontend no longer hardcodes `localhost` for API calls.
+- Backend is already bound to `0.0.0.0` by uvicorn Docker command.
+- Compose publishes backend port `8000:8000` and frontend port `3000:3000`.
+- FastAPI CORS allows localhost + LAN origin patterns.
 
 ## Main APIs
 - `POST /inventory/from-image` `{ image_base64, context }`
