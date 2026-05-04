@@ -57,12 +57,16 @@ def parse_maybe_json(raw: str):
 @app.post('/ideas/stream')
 def stream_ideas(req: GenerateRequest, db: Session = Depends(get_db)):
     items = db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).limit(12).all()
+    if len(items) == 0:
+        def empty():
+            yield "Your pantry is empty right now. Add items manually, upload a pantry photo, or upload a receipt so I can suggest meals accurately."
+        return StreamingResponse(empty(), media_type="text/plain")
     pantry = "\n".join([f"- {i.name}: {i.quantity} {i.unit}" for i in items])
     payload = {
         "model": OLLAMA_MODEL,
         "messages": [
-            {"role": "system", "content": "You are a concise pantry assistant."},
-            {"role": "user", "content": f"{req.prompt}\nPantry:\n{pantry}"},
+            {"role": "system", "content": "You are a pantry-aware meal assistant. Use ONLY pantry items as available. Clearly mark missing ingredients as: You do not currently have ___. Offer pantry-first substitutes. If no substitute, ask whether user wants to switch recipe, add missing ingredient to grocery list, or continue anyway. For requests asking what the user can make, give 3-5 short options only (name, why it fits pantry, missing items, substitutes) then ask which one to expand into full recipe. Do NOT provide full detailed recipe unless user asks for one option explicitly. Keep responses short and honest."},
+            {"role": "user", "content": f"{req.prompt}\nPantry count: {len(items)}\nPantry:\n{pantry}"},
         ],
         "stream": True,
         "keep_alive": "10m",
@@ -148,3 +152,10 @@ def confirm_import(payload: dict, db: Session = Depends(get_db)):
 @app.get('/pantry', response_model=list[PantryItemOut])
 def pantry(db: Session = Depends(get_db)):
     return db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).all()
+
+
+@app.delete("/pantry")
+def clear_pantry(db: Session = Depends(get_db)):
+    deleted = db.query(PantryItem).delete()
+    db.commit()
+    return {"deleted": deleted}

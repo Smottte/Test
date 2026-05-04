@@ -9,10 +9,17 @@ export default function App() {
   const [isThinking, setIsThinking] = useState(false);
   const [showJump, setShowJump] = useState(false);
   const [analysis, setAnalysis] = useState(null);
+  const [pantry, setPantry] = useState([]);
   const [analysisType, setAnalysisType] = useState('pantry_photo');
   const [preview, setPreview] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const chatRef = useRef(null);
+
+  const loadPantry = async () => {
+    try { const r = await fetch(`${API}/pantry`); if (r.ok) setPantry(await r.json()); } catch {}
+  };
+
+  useEffect(() => { loadPantry(); }, []);
   const inputRef = useRef(null);
   const fileRef = useRef(null);
 
@@ -82,12 +89,19 @@ export default function App() {
     const data = await res.json();
     if (!res.ok) return setMessages((m)=>[...m,{role:'error',text:data.detail || 'Import failed'}]);
     setMessages((m)=>[...m,{role:'assistant',text:`I added ${data.added} items from your ${analysis?.import_type === 'receipt' ? 'receipt' : 'photo'} to the pantry.`}]);
-    setAnalysis(null); setPreview('');
+    setAnalysis(null); setPreview(''); loadPantry();
   };
 
   return <div style={{height:'100vh',display:'flex',flexDirection:'column',background:'#fafafa'}}>
-    <header style={{padding:'10px 14px',borderBottom:'1px solid #e5e7eb'}}>Pantry AI Chat</header>
+    <header style={{padding:'10px 14px',borderBottom:'1px solid #e5e7eb',display:'flex',justifyContent:'space-between'}}>
+      <span>Pantry AI Chat</span>
+      <span style={{display:'flex',gap:8,alignItems:'center'}}>
+        <small>Pantry items: {pantry.length}</small>
+        <button onClick={async()=>{const r=await fetch(`${API}/pantry`,{method:'DELETE'}); const d=await r.json(); setMessages(m=>[...m,{role:'assistant',text:`Cleared pantry (${d.deleted||0} items removed).`}]); loadPantry();}}>Clear pantry</button>
+      </span>
+    </header>
     <main ref={chatRef} onScroll={onChatScroll} style={{flex:1,overflowY:'auto',padding:'16px 14px 120px',maxWidth:900,width:'100%',margin:'0 auto'}}>
+      {pantry.length===0 && <div style={{background:'#fff7ed',border:'1px solid #fed7aa',padding:10,borderRadius:10,marginBottom:10}}>Your pantry is empty. Add items manually, upload a pantry photo, or upload a receipt.</div>}
       {messages.map((m,i)=><div key={i} style={{maxWidth:'86%',margin:'0 0 10px auto',whiteSpace:'pre-wrap',padding:'10px 12px',borderRadius:14,background:m.role==='user'?'#111827':m.role==='error'?'#fee2e2':'#fff',color:m.role==='user'?'#fff':'#111'}}>{m.text}</div>)}
       {showJump && <button onClick={scrollToBottom} style={{position:'sticky',bottom:10,left:'50%',transform:'translateX(-50%)',border:'1px solid #ddd',borderRadius:999,padding:'6px 12px',background:'#fff'}}>Jump to latest</button>}
     </main>
