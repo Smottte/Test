@@ -68,12 +68,12 @@ export default function App() {
       } else {
         const b64 = await toBase64(f);
         const endpoint = analysisType === 'receipt' ? '/inventory/from-receipt' : '/inventory/from-image';
-        const res = await fetch(`${API}${endpoint}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ image_base64:b64, file_type:'image' })});
+        const res = await fetch(`${API}${endpoint}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ image_base64:b64, file_type:'image', mime_type:f.type })});
         const data = await res.json(); if (!res.ok) throw new Error(data.detail || 'Image parse failed');
         setAnalysis(data);
       }
     } catch (err) {
-      setMessages((m)=>[...m,{role:'error',text:String(err.message || err)}]);
+      setMessages((m)=>[...m,{role:'error',text:`Upload failed: ${String(err.message || err)}`}]);
     } finally { setAnalyzing(false); e.target.value=''; }
   };
 
