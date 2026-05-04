@@ -12,27 +12,19 @@ from .schemas import (
     PantryItemOut,
     MealIdeaOut,
     GenerateRequest,
+    GenerateResponse,
     InventoryImageIn,
     MarkCookedRequest,
 )
 from .seed import seed_data
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", os.getenv("OLLAMA_URL", "http://ollama:11434"))
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava")
+OLLAMA_CHAT_ENDPOINT = f"{OLLAMA_BASE_URL}/api/chat"
 
 app = FastAPI(title="Pantry AI Planner")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://192.168.1.99:3000",
-    ],
-    allow_origin_regex=r"http://192\.168\.1\.\d+:3000",
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 Base.metadata.create_all(bind=engine)
 seed_data()
 
@@ -54,60 +46,73 @@ def infer_meal_type_from_text(text: str, default_type: str) -> str:
     return default_type
 
 
-def call_ollama(prompt: str, model: str, images=None):
-    payload = {"model": model, "prompt": prompt, "stream": False}
+def call_ollama_chat(system_prompt: str, user_prompt: str, model: str, images=None):
+    message = {"role": "user", "content": user_prompt}
     if images:
-        payload["images"] = images
-    r = httpx.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=75)
+        message["images"] = images
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            message,
+        ],
+        "stream": False,
+    }
+    print(f"[ollama] endpoint={OLLAMA_CHAT_ENDPOINT} model={model}")
+    r = httpx.post(OLLAMA_CHAT_ENDPOINT, json=payload, timeout=90)
     r.raise_for_status()
-    return r.json().get("response", "")
+    return r.json().get("message", {}).get("content", "")
 
 
 @app.get("/ai/status")
 def ai_status():
     try:
-        r = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=10)
+        r = httpx.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=10)
         r.raise_for_status()
-        return {"mode": "ollama", "model": OLLAMA_MODEL, "ollama_reachable": True}
+        return {"mode": "ollama", "model": OLLAMA_MODEL, "endpoint": OLLAMA_CHAT_ENDPOINT, "ollama_reachable": True}
     except Exception as e:
-        return {"mode": "error", "model": OLLAMA_MODEL, "ollama_reachable": False, "detail": str(e)}
+        return {"mode": "error", "model": OLLAMA_MODEL, "endpoint": OLLAMA_CHAT_ENDPOINT, "ollama_reachable": False, "detail": str(e)}
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok", "default_meal_type": current_meal_type()}
+@app.post("/ideas/generate", response_model=GenerateResponse)
+def generate_ideas(req: GenerateRequest, db: Session = Depends(get_db)):
+    items = db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).limit(25).all()
+    if not items:
+        raise HTTPException(status_code=400, detail="Run inventory setup first")
 
+    meal_type = infer_meal_type_from_text(req.prompt or "", req.meal_type or current_meal_type())
+    pantry_lines = [f"- {i.name}: {i.quantity} {i.unit}, expiring {i.expiration_date}" for i in items]
+    user_prompt = (req.prompt or f"Suggest a {meal_type} idea") + "\n\nPantry:\n" + "\n".join(pantry_lines)
+    system_prompt = (
+        "You are a local pantry meal assistant. Use pantry inventory honestly. "
+        "If inventory is limited, say so. Do not invent ingredients. Ask follow-up questions when needed."
+    )
 
-@app.post("/pantry", response_model=PantryItemOut)
-def add_item(item: PantryItemCreate, db: Session = Depends(get_db)):
-    db_item = PantryItem(**item.model_dump())
-    db.add(db_item)
+    try:
+        content = call_ollama_chat(system_prompt, user_prompt, OLLAMA_MODEL)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Ollama chat failed ({OLLAMA_CHAT_ENDPOINT}, model={OLLAMA_MODEL}): {e}")
+
+    db.add(MealIdea(
+        title=f"{meal_type.title()} chat response",
+        description=content,
+        ingredients_used=json.dumps([]),
+        missing_ingredients=json.dumps([]),
+        meal_type=meal_type,
+        image_hint=meal_type,
+        plan_day=None,
+    ))
     db.commit()
-    db.refresh(db_item)
-    return db_item
 
-
-@app.get("/pantry", response_model=list[PantryItemOut])
-def list_items(db: Session = Depends(get_db)):
-    return db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).all()
-
-
-@app.get("/pantry/expires-soon", response_model=list[PantryItemOut])
-def expires_soon(days: int = 5, db: Session = Depends(get_db)):
-    cutoff = date.fromordinal(date.today().toordinal() + days)
-    return db.query(PantryItem).filter(PantryItem.expiration_date <= cutoff).order_by(PantryItem.expiration_date.asc()).all()
+    return {"reply": content, "model": OLLAMA_MODEL, "endpoint": OLLAMA_CHAT_ENDPOINT, "source": "ollama-chat"}
 
 
 @app.post("/inventory/from-image")
 def inventory_from_image(payload: InventoryImageIn, db: Session = Depends(get_db)):
-    prompt = (
-        "Read this pantry/fridge image. Return strict JSON with keys: "
-        "items (array of {name,category,quantity,unit,notes}), "
-        "needs_better_photo (bool), missing_view (string), guidance (string)."
-    )
+    system_prompt = "Identify pantry items and return strict JSON with keys: items, needs_better_photo, missing_view, guidance"
     try:
-        result = call_ollama(prompt, VISION_MODEL, [payload.image_base64])
-        parsed = json.loads(result)
+        content = call_ollama_chat(system_prompt, "Analyze this pantry image", VISION_MODEL, [payload.image_base64])
+        parsed = json.loads(content)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Vision model failed: {e}")
 
@@ -126,60 +131,9 @@ def inventory_from_image(payload: InventoryImageIn, db: Session = Depends(get_db
     return {"added_items": added, **parsed}
 
 
-@app.post("/ideas/generate", response_model=list[MealIdeaOut])
-def generate_ideas(req: GenerateRequest, db: Session = Depends(get_db)):
-    items = db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).limit(25).all()
-    if not items:
-        raise HTTPException(status_code=400, detail="Run inventory setup first")
-
-    meal_type = infer_meal_type_from_text(req.prompt or "", req.meal_type or current_meal_type())
-    pantry_lines = [f"- {i.name} ({i.quantity} {i.unit}) exp:{i.expiration_date}" for i in items]
-    count = 7 if req.weekly else 3
-    prompt = req.prompt or f"Suggest {count} {meal_type} ideas using pantry items."
-    full_prompt = (
-        f"Return strict JSON array of {count} items with keys: title, description, ingredients_used(array), missing_ingredients(array), image_hint, plan_day. "
-        f"Prioritize expiring foods. Meal type: {meal_type}. User request: {prompt}\nPantry:\n" + "\n".join(pantry_lines)
-    )
-
-    try:
-        raw = call_ollama(full_prompt, OLLAMA_MODEL)
-        ideas = json.loads(raw)
-        if not isinstance(ideas, list):
-            raise ValueError("Model did not return JSON list")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Ollama generation failed: {e}")
-
-    saved = []
-    for idea in ideas[:count]:
-        row = MealIdea(
-            title=idea.get("title", "Untitled"),
-            description=idea.get("description", ""),
-            ingredients_used=json.dumps(idea.get("ingredients_used", [])),
-            missing_ingredients=json.dumps(idea.get("missing_ingredients", [])),
-            meal_type=meal_type,
-            image_hint=idea.get("image_hint", meal_type),
-            plan_day=idea.get("plan_day"),
-        )
-        db.add(row)
-        db.commit()
-        db.refresh(row)
-        saved.append(row)
-    return saved
-
-
-@app.post("/ideas/mark-cooked")
-def mark_cooked(req: MarkCookedRequest, db: Session = Depends(get_db)):
-    idea = db.query(MealIdea).filter(MealIdea.id == req.meal_idea_id).first()
-    if not idea:
-        raise HTTPException(status_code=404, detail="meal not found")
-    used = json.loads(idea.ingredients_used)
-    for name in used:
-        db.add(UsageLog(meal_idea_id=idea.id, pantry_item_name=name, quantity_used=1))
-        item = db.query(PantryItem).filter(PantryItem.name.ilike(name)).first()
-        if item and item.quantity > 0:
-            item.quantity -= 1
-    db.commit()
-    return {"logged": len(used)}
+@app.get("/pantry", response_model=list[PantryItemOut])
+def list_items(db: Session = Depends(get_db)):
+    return db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).all()
 
 
 @app.get("/ideas", response_model=list[MealIdeaOut])

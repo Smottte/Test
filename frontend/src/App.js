@@ -22,10 +22,6 @@ const getTimeMeal = () => {
   return 'dinner';
 };
 
-const formatIdeas = (ideas) => (ideas || []).map((i, idx) => (
-  `${idx + 1}. ${i.title}\n${i.description}\nUse: ${i.ingredients_used}\nMissing: ${i.missing_ingredients}`
-)).join('\n\n');
-
 export default function App() {
   const [messages, setMessages] = useState([{ role: 'assistant', text: 'Hi — I am your local pantry AI assistant. What would you like to cook?' }]);
   const [input, setInput] = useState('');
@@ -79,12 +75,8 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || `Generate failed (${res.status})`);
 
-      const ideasRes = await fetch(`${API}/ideas`);
-      const ideas = ideasRes.ok ? await ideasRes.json() : data;
-      const latest = Array.isArray(ideas) ? ideas.slice(0, 3) : data;
-
-      setMessages((m) => [...m, { role: 'assistant', text: formatIdeas(latest) || 'No ideas returned.' }]);
-      setDebugSource('source: Ollama response saved + loaded from DB');
+      setMessages((m) => [...m, { role: 'assistant', text: data.reply || 'No response content returned.' }]);
+      setDebugSource(`source: ${data.source} model=${data.model}`);
     } catch (e) {
       setMessages((m) => [...m, { role: 'error', text: e.message || 'Generation failed.' }]);
       setDebugSource('source: error (no demo fallback used)');

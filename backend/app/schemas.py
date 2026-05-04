@@ -39,6 +39,13 @@ class GenerateRequest(BaseModel):
     prompt: Optional[str] = None
 
 
+class GenerateResponse(BaseModel):
+    reply: str
+    model: str
+    endpoint: str
+    source: str
+
+
 class InventoryImageIn(BaseModel):
     image_base64: str
     context: str = "fridge"
