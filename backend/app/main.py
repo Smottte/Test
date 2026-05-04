@@ -18,7 +18,7 @@ from .schemas import (
 from .seed import seed_data
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava")
 
 app = FastAPI(title="Pantry AI Planner")
@@ -39,22 +39,38 @@ seed_data()
 
 def current_meal_type() -> str:
     hour = datetime.now().hour
-    if 11 <= hour < 14:
+    if 5 <= hour < 11:
+        return "breakfast"
+    if 11 <= hour < 15:
         return "lunch"
-    if 14 <= hour < 19:
-        return "dinner"
-    if 19 <= hour < 24:
-        return "dessert"
-    return "breakfast"
+    return "dinner"
+
+
+def infer_meal_type_from_text(text: str, default_type: str) -> str:
+    lower = text.lower()
+    for meal in ["breakfast", "lunch", "dinner", "dessert"]:
+        if meal in lower:
+            return meal
+    return default_type
 
 
 def call_ollama(prompt: str, model: str, images=None):
     payload = {"model": model, "prompt": prompt, "stream": False}
     if images:
         payload["images"] = images
-    r = httpx.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=120)
+    r = httpx.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=75)
     r.raise_for_status()
     return r.json().get("response", "")
+
+
+@app.get("/ai/status")
+def ai_status():
+    try:
+        r = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=10)
+        r.raise_for_status()
+        return {"mode": "ollama", "model": OLLAMA_MODEL, "ollama_reachable": True}
+    except Exception as e:
+        return {"mode": "error", "model": OLLAMA_MODEL, "ollama_reachable": False, "detail": str(e)}
 
 
 @app.get("/health")
@@ -92,13 +108,8 @@ def inventory_from_image(payload: InventoryImageIn, db: Session = Depends(get_db
     try:
         result = call_ollama(prompt, VISION_MODEL, [payload.image_base64])
         parsed = json.loads(result)
-    except Exception:
-        parsed = {
-            "items": [],
-            "needs_better_photo": True,
-            "missing_view": "top/middle/bottom shelf unclear",
-            "guidance": "Please retake with brighter light and full shelf coverage.",
-        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Vision model failed: {e}")
 
     added = 0
     for item in parsed.get("items", []):
@@ -117,29 +128,32 @@ def inventory_from_image(payload: InventoryImageIn, db: Session = Depends(get_db
 
 @app.post("/ideas/generate", response_model=list[MealIdeaOut])
 def generate_ideas(req: GenerateRequest, db: Session = Depends(get_db)):
-    items = db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).all()
+    items = db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).limit(25).all()
     if not items:
         raise HTTPException(status_code=400, detail="Run inventory setup first")
 
-    meal_type = req.meal_type or current_meal_type()
-    pantry_lines = [f"- {i.name} ({i.quantity} {i.unit}), expiring {i.expiration_date}" for i in items]
-    mode = "7 meals" if req.weekly else "3 meals"
-    prompt = req.prompt or (
-        f"Create {mode} for {meal_type}. Use mostly pantry items, prioritize expiring soon. "
-        "Return strict JSON array with: title,description,ingredients_used(array),missing_ingredients(array),image_hint,plan_day.\n"
-        + "\n".join(pantry_lines)
+    meal_type = infer_meal_type_from_text(req.prompt or "", req.meal_type or current_meal_type())
+    pantry_lines = [f"- {i.name} ({i.quantity} {i.unit}) exp:{i.expiration_date}" for i in items]
+    count = 7 if req.weekly else 3
+    prompt = req.prompt or f"Suggest {count} {meal_type} ideas using pantry items."
+    full_prompt = (
+        f"Return strict JSON array of {count} items with keys: title, description, ingredients_used(array), missing_ingredients(array), image_hint, plan_day. "
+        f"Prioritize expiring foods. Meal type: {meal_type}. User request: {prompt}\nPantry:\n" + "\n".join(pantry_lines)
     )
 
     try:
-        ideas = json.loads(call_ollama(prompt, OLLAMA_MODEL))
-    except Exception:
-        ideas = [{"title": f"Quick {meal_type.title()} Bowl", "description": "Pantry-based quick meal.", "ingredients_used": [items[0].name], "missing_ingredients": ["salt"], "image_hint": meal_type, "plan_day": None}] * (7 if req.weekly else 3)
+        raw = call_ollama(full_prompt, OLLAMA_MODEL)
+        ideas = json.loads(raw)
+        if not isinstance(ideas, list):
+            raise ValueError("Model did not return JSON list")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Ollama generation failed: {e}")
 
     saved = []
-    for idea in ideas[: 7 if req.weekly else 3]:
+    for idea in ideas[:count]:
         row = MealIdea(
-            title=idea["title"],
-            description=idea["description"],
+            title=idea.get("title", "Untitled"),
+            description=idea.get("description", ""),
             ingredients_used=json.dumps(idea.get("ingredients_used", [])),
             missing_ingredients=json.dumps(idea.get("missing_ingredients", [])),
             meal_type=meal_type,
