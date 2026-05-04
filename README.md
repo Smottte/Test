@@ -41,3 +41,8 @@ docker compose exec ollama ollama pull llava
 - Backend attempts Ollama vision parsing with `OLLAMA_VISION_MODEL` (default `llava`).
 - App shows progress states: Uploading receipt → Reading receipt → Finding grocery items → Review detected items.
 - If parsing fails, a clear error is shown; it will not silently add 0 items.
+
+## UI branding
+- App name: **Cheffie**
+- Chat-first polished interface with rounded composer and modern typography.
+- Suggested prompts show before first message and disappear after chat starts.
