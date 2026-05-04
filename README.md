@@ -49,3 +49,19 @@ Then test from another LAN device:
 - `POST /ideas/generate` `{ weekly, meal_type, prompt }`
 - `POST /ideas/mark-cooked` `{ meal_idea_id }`
 - `GET /ideas`
+
+## Test generate flow (custom prompt)
+1. Open `http://192.168.1.99:3000`
+2. In **Custom Meal Request**, type: `I want a high protein dinner with chicken and rice.`
+3. Leave weekly unchecked (or enable for weekly).
+4. Click **Generate Dinner Ideas**.
+5. You should see:
+   - Button text change to `Generating…`
+   - A status banner `Generating ideas...`
+   - A debug line showing the exact POST payload and endpoint
+6. On success:
+   - Status changes to `Generated successfully...`
+   - Idea cards refresh from `GET /ideas`
+7. On failure:
+   - A visible red error banner appears with backend/Ollama message
+   - If Ollama is slow/unavailable, timeout message appears after 90s

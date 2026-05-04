@@ -22,6 +22,7 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [weekly, setWeekly] = useState(false);
   const [error, setError] = useState('');
+  const [debugMsg, setDebugMsg] = useState('idle');
 
   const defaultType = useMemo(() => {
     const h = new Date().getHours();
@@ -32,10 +33,7 @@ export default function App() {
   }, []);
 
   const load = async () => {
-    const [pantryRes, ideasRes] = await Promise.all([
-      fetch(`${API}/pantry`),
-      fetch(`${API}/ideas`)
-    ]);
+    const [pantryRes, ideasRes] = await Promise.all([fetch(`${API}/pantry`), fetch(`${API}/ideas`)]);
     if (!pantryRes.ok || !ideasRes.ok) throw new Error('Unable to load pantry or ideas.');
     setItems(await pantryRes.json());
     setIdeas(await ideasRes.json());
@@ -46,70 +44,60 @@ export default function App() {
     load().catch((e) => setError(e.message));
   }, [defaultType]);
 
-  const fileToB64 = (f) => new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(',')[1]);
-    reader.readAsDataURL(f);
-  });
-
-  const uploadInventory = async (e, context) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setError('');
-    const b64 = await fileToB64(file);
-    const res = await fetch(`${API}/inventory/from-image`, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ image_base64: b64, context })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data?.detail || 'Image inventory failed.');
-      return;
-    }
-    setFeedback(`${data.added_items} items added. ${data.guidance || ''} ${data.needs_better_photo ? `Retake suggested: ${data.missing_view}` : ''}`);
-    await load();
-  };
-
   const handleGenerateSubmit = async (e) => {
     e.preventDefault();
+    if (isGenerating) return;
     setError('');
+    setFeedback('Generating ideas...');
+    setDebugMsg('Preparing request');
     setIsGenerating(true);
+
+    const payload = {
+      weekly,
+      meal_type: mealType,
+      prompt: customPrompt.trim() ? customPrompt : null
+    };
+
+    console.log('POST /ideas/generate payload', payload);
+    setDebugMsg(`POST ${API}/ideas/generate :: ${JSON.stringify(payload)}`);
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 90000);
+
     try {
       const res = await fetch(`${API}/ideas/generate`, {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          weekly,
-          meal_type: mealType,
-          prompt: customPrompt.trim() ? customPrompt : null
-        })
+        body: JSON.stringify(payload),
+        signal: ctrl.signal
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.detail || 'Failed to generate ideas.');
-      }
-      setIdeas(data);
-      setFeedback(`Generated ${data.length} ${mealType} idea(s).`);
-    } catch (err) {
-      setError(err.message || 'Backend/Ollama error while generating ideas.');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
 
-  const markCooked = async (id) => {
-    setError('');
-    try {
-      const res = await fetch(`${API}/ideas/mark-cooked`, {
-        method: 'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ meal_idea_id: id })
-      });
-      if (!res.ok) throw new Error('Failed to log cooked meal.');
-      await load();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.detail || `Generate failed (${res.status})`);
+      }
+
+      await load(); // refresh via GET /ideas per requirement
+      const count = Array.isArray(data) ? data.length : 0;
+      setFeedback(`Generated successfully. Added ${count} idea(s).`);
+      setDebugMsg(`Success (${res.status}). Ideas refreshed from GET /ideas.`);
     } catch (err) {
-      setError(err.message);
+      const msg = err?.name === 'AbortError'
+        ? 'Generate request timed out after 90s. Ollama may still be loading.'
+        : (err.message || 'Backend/Ollama error while generating ideas.');
+      setError(msg);
+      setFeedback('');
+      setDebugMsg(`Error: ${msg}`);
+      console.error('Generate error', err);
+    } finally {
+      clearTimeout(timer);
+      setIsGenerating(false);
     }
   };
 
@@ -117,36 +105,22 @@ export default function App() {
     <h1>🍽️ Pantry AI Planner</h1>
     <p>API: <code>{API}</code></p>
 
-    <div style={{display:'flex', gap:10, flexWrap:'wrap', marginBottom:16}}>
-      <label style={{background:'#fff', padding:10, borderRadius:10}}>📷 Pantry/Fridge Setup <input type='file' accept='image/*' onChange={(e)=>uploadInventory(e,'fridge')} /></label>
-      <label style={{background:'#fff', padding:10, borderRadius:10}}>🧾 Receipt Upload <input type='file' accept='image/*' onChange={(e)=>uploadInventory(e,'receipt')} /></label>
-    </div>
-
     <form onSubmit={handleGenerateSubmit} style={{background:'#fff', padding:12, borderRadius:12, marginBottom:16}}>
       <h3 style={{marginTop:0}}>Custom Meal Request</h3>
-      <textarea
-        value={customPrompt}
-        onChange={(e)=>setCustomPrompt(e.target.value)}
-        placeholder='I want something high protein with chicken and rice.'
-        style={{width:'100%',height:90,borderRadius:8,padding:8,display:'block',marginBottom:10}}
-      />
+      <textarea value={customPrompt} onChange={(e)=>setCustomPrompt(e.target.value)} placeholder='I want a high protein dinner with chicken and rice.' style={{width:'100%',height:100,borderRadius:8,padding:8,marginBottom:10}} />
       <div style={{display:'flex', gap:10, alignItems:'center', flexWrap:'wrap'}}>
         <label>Meal Type:</label>
         <select value={mealType} onChange={(e)=>setMealType(e.target.value)}>
-          <option value='breakfast'>breakfast</option>
-          <option value='lunch'>lunch</option>
-          <option value='dinner'>dinner</option>
-          <option value='dessert'>dessert</option>
+          <option value='breakfast'>breakfast</option><option value='lunch'>lunch</option><option value='dinner'>dinner</option><option value='dessert'>dessert</option>
         </select>
-        <label>
-          <input type='checkbox' checked={weekly} onChange={(e)=>setWeekly(e.target.checked)} /> Weekly plan
-        </label>
+        <label><input type='checkbox' checked={weekly} onChange={(e)=>setWeekly(e.target.checked)} /> Weekly plan</label>
         <button type='submit' disabled={isGenerating}>{isGenerating ? 'Generating…' : 'Generate Dinner Ideas'}</button>
       </div>
     </form>
 
     {feedback && <p style={{background:'#eef7ff', padding:10, borderRadius:8}}>{feedback}</p>}
     {error && <p style={{background:'#ffecec', color:'#a30000', padding:10, borderRadius:8}}>{error}</p>}
+    <p style={{fontSize:12, color:'#666'}}>Debug: {debugMsg}</p>
 
     <h2>Quick Access Squares</h2>
     <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:14}}>
@@ -158,7 +132,6 @@ export default function App() {
           <p>{idea.description}</p>
           <p><b>Use:</b> {idea.ingredients_used}</p>
           <p><b>Missing:</b> {idea.missing_ingredients}</p>
-          <button onClick={()=>markCooked(idea.id)}>Cooked this ✅</button>
         </div>
       </div>)}
     </div>
