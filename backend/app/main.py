@@ -1,4 +1,5 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+import base64
 import json
 import os
 import time
@@ -14,6 +15,7 @@ from .seed import seed_data
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", os.getenv("OLLAMA_URL", "http://ollama:11434"))
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava")
 OLLAMA_CHAT_ENDPOINT = f"{OLLAMA_BASE_URL}/api/chat"
 
 app = FastAPI(title="Pantry AI Planner")
@@ -22,92 +24,50 @@ Base.metadata.create_all(bind=engine)
 seed_data()
 
 
-def current_meal_type() -> str:
-    hour = datetime.now().hour
-    if 5 <= hour < 11:
-        return "breakfast"
-    if 11 <= hour < 15:
-        return "lunch"
+def call_chat(model: str, system: str, user: str, stream=False, images=None, timeout=180):
+    user_msg = {"role": "user", "content": user}
+    if images:
+        user_msg["images"] = images
+    payload = {
+        "model": model,
+        "messages": [{"role": "system", "content": system}, user_msg],
+        "stream": stream,
+        "keep_alive": "10m",
+        "options": {"num_ctx": 2048, "num_predict": 500, "temperature": 0.5},
+    }
+    print(f"[ollama] endpoint={OLLAMA_CHAT_ENDPOINT} model={model}")
+    return payload
+
+
+def current_meal_type():
+    h = datetime.now().hour
+    if 5 <= h < 11: return "breakfast"
+    if 11 <= h < 15: return "lunch"
     return "dinner"
 
 
-def infer_meal_type_from_text(text: str, default_type: str) -> str:
-    t = (text or "").lower()
-    for m in ["breakfast", "lunch", "dinner", "dessert"]:
-        if m in t:
-            return m
-    return default_type
-
-
-def build_payload(prompt: str, meal_type: str, pantry_items: list[PantryItem], stream: bool):
-    pantry_lines = [f"- {i.name}: {i.quantity} {i.unit}, exp {i.expiration_date}" for i in pantry_items]
-    user_prompt = (
-        f"Meal type: {meal_type}. User request: {prompt}\n"
-        f"Pantry (use only if present):\n" + "\n".join(pantry_lines)
-    )
-    return {
-        "model": OLLAMA_MODEL,
-        "messages": [
-            {"role": "system", "content": "You are a local pantry meal assistant. Be concise, practical, and honest about missing ingredients."},
-            {"role": "user", "content": user_prompt},
-        ],
-        "stream": stream,
-        "keep_alive": "10m",
-        "options": {
-            "num_ctx": 2048,
-            "num_predict": 500,
-            "temperature": 0.5,
-        },
-    }
-
-
-@app.get("/ai/status")
+@app.get('/ai/status')
 def ai_status():
     try:
         r = httpx.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=10)
         r.raise_for_status()
-        return {"mode": "ollama", "model": OLLAMA_MODEL, "endpoint": OLLAMA_CHAT_ENDPOINT, "ollama_reachable": True}
+        tags = [m.get("name", "") for m in r.json().get("models", [])]
+        return {"mode":"ollama","model":OLLAMA_MODEL,"vision_model":VISION_MODEL,"endpoint":OLLAMA_CHAT_ENDPOINT,"ollama_reachable":True,"llava_installed":any("llava" in t for t in tags)}
     except Exception as e:
-        return {"mode": "error", "model": OLLAMA_MODEL, "endpoint": OLLAMA_CHAT_ENDPOINT, "ollama_reachable": False, "detail": str(e)}
-
-
-@app.post("/ideas/generate", response_model=GenerateResponse)
-def generate_ideas(req: GenerateRequest, db: Session = Depends(get_db)):
-    started = time.time()
-    items = db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).limit(12).all()
-    if not items:
-        raise HTTPException(status_code=400, detail="Run inventory setup first")
-
-    meal_type = infer_meal_type_from_text(req.prompt or "", req.meal_type or current_meal_type())
-    payload = build_payload(req.prompt or f"Suggest a {meal_type} meal", meal_type, items, stream=False)
-    print(f"[ollama] start endpoint={OLLAMA_CHAT_ENDPOINT} model={OLLAMA_MODEL}")
-    try:
-        r = httpx.post(OLLAMA_CHAT_ENDPOINT, json=payload, timeout=180)
-        r.raise_for_status()
-        content = r.json().get("message", {}).get("content", "")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Ollama chat failed ({OLLAMA_CHAT_ENDPOINT}, model={OLLAMA_MODEL}): {e}")
-    print(f"[ollama] done duration_ms={int((time.time()-started)*1000)}")
-
-    db.add(MealIdea(title=f"{meal_type.title()} chat response", description=content, ingredients_used="[]", missing_ingredients="[]", meal_type=meal_type, image_hint=meal_type, plan_day=None))
-    db.commit()
-
-    return {"reply": content, "model": OLLAMA_MODEL, "endpoint": OLLAMA_CHAT_ENDPOINT, "source": "ollama-chat"}
+        return {"mode":"error","model":OLLAMA_MODEL,"endpoint":OLLAMA_CHAT_ENDPOINT,"ollama_reachable":False,"detail":str(e)}
 
 
 @app.post('/ideas/stream')
 def stream_ideas(req: GenerateRequest, db: Session = Depends(get_db)):
-    started = time.time()
     items = db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).limit(12).all()
-    if not items:
-        raise HTTPException(status_code=400, detail='Run inventory setup first')
-    meal_type = infer_meal_type_from_text(req.prompt or "", req.meal_type or current_meal_type())
-    payload = build_payload(req.prompt or f"Suggest a {meal_type} meal", meal_type, items, stream=True)
+    meal_type = req.meal_type or current_meal_type()
+    pantry = "\n".join([f"- {i.name}: {i.quantity} {i.unit} exp {i.expiration_date}" for i in items])
+    payload = call_chat(OLLAMA_MODEL, "You are a concise pantry assistant.", f"Meal type: {meal_type}\nUser: {req.prompt}\nPantry:\n{pantry}", stream=True)
+    started = time.time()
 
-    def event_stream():
-        first_token_at = None
+    def gen():
+        first = None
         full = []
-        print(f"[ollama] start endpoint={OLLAMA_CHAT_ENDPOINT} model={OLLAMA_MODEL}")
         try:
             with httpx.stream("POST", OLLAMA_CHAT_ENDPOINT, json=payload, timeout=180) as r:
                 r.raise_for_status()
@@ -115,23 +75,87 @@ def stream_ideas(req: GenerateRequest, db: Session = Depends(get_db)):
                     if not line:
                         continue
                     data = json.loads(line)
-                    token = data.get("message", {}).get("content", "")
-                    if token:
-                        if first_token_at is None:
-                            first_token_at = time.time()
-                            print(f"[ollama] first_token_ms={int((first_token_at-started)*1000)}")
-                        full.append(token)
-                        yield token
-            text = "".join(full)
-            db.add(MealIdea(title=f"{meal_type.title()} chat response", description=text, ingredients_used="[]", missing_ingredients="[]", meal_type=meal_type, image_hint=meal_type, plan_day=None))
+                    tok = data.get("message", {}).get("content", "")
+                    if tok:
+                        if first is None:
+                            first = time.time(); print(f"[ollama] first_token_ms={int((first-started)*1000)}")
+                        full.append(tok)
+                        yield tok
+            txt = "".join(full)
+            db.add(MealIdea(title="Chat response", description=txt, ingredients_used="[]", missing_ingredients="[]", meal_type=meal_type, image_hint=meal_type))
             db.commit()
             print(f"[ollama] done duration_ms={int((time.time()-started)*1000)}")
         except Exception as e:
-            yield f"\n[ERROR] Ollama stream failed: {e}"
+            yield f"\n[ERROR] {e}"
 
-    return StreamingResponse(event_stream(), media_type='text/plain')
+    return StreamingResponse(gen(), media_type="text/plain")
+
+
+@app.post('/inventory/from-image')
+def inventory_from_image(payload: dict):
+    image_b64 = payload.get("image_base64")
+    if not image_b64:
+        raise HTTPException(status_code=400, detail="image_base64 required")
+    system = "Extract pantry items from image. Return strict JSON {items:[{name,quantity,unit,category,confidence}],needs_review:boolean,notes}."
+    body = call_chat(VISION_MODEL, system, "Analyze pantry/fridge image", images=[image_b64])
+    try:
+        r = httpx.post(OLLAMA_CHAT_ENDPOINT, json=body, timeout=180)
+        r.raise_for_status()
+        content = r.json().get("message", {}).get("content", "")
+        data = json.loads(content)
+        data["method"] = "ollama-vision"
+        data["import_type"] = "pantry_photo"
+        return data
+    except Exception as e:
+        msg = str(e)
+        if "404" in msg or "model" in msg.lower():
+            msg += " | Vision model may be missing. Run: docker compose exec ollama ollama pull llava"
+        raise HTTPException(status_code=502, detail=msg)
+
+
+@app.post('/inventory/from-receipt')
+def inventory_from_receipt(payload: dict):
+    file_type = payload.get("file_type", "image")
+    if file_type == "pdf":
+        raise HTTPException(status_code=400, detail="PDF extraction not enabled in this build. Please upload receipt as image (jpg/png/webp).")
+    image_b64 = payload.get("image_base64")
+    if not image_b64:
+        raise HTTPException(status_code=400, detail="image_base64 required")
+    system = "Extract grocery receipt lines. Ignore totals/tax/non-food. Return strict JSON {store,date,items:[{name,quantity,unit,price,confidence}],needs_review:true}."
+    body = call_chat(VISION_MODEL, system, "Parse this grocery receipt", images=[image_b64])
+    try:
+        r = httpx.post(OLLAMA_CHAT_ENDPOINT, json=body, timeout=180)
+        r.raise_for_status()
+        content = r.json().get("message", {}).get("content", "")
+        data = json.loads(content)
+        data["method"] = "ollama-vision"
+        data["import_type"] = "receipt"
+        return data
+    except Exception as e:
+        msg = str(e)
+        if "404" in msg or "model" in msg.lower():
+            msg += " | Vision model may be missing. Run: docker compose exec ollama ollama pull llava"
+        raise HTTPException(status_code=502, detail=msg)
+
+
+@app.post('/inventory/confirm-import')
+def confirm_import(payload: dict, db: Session = Depends(get_db)):
+    items = payload.get("items", [])
+    added = 0
+    for it in items:
+        if not it.get("name"):
+            continue
+        exp = it.get("expiration_date")
+        if not exp:
+            exp_date = date.today() + timedelta(days=7)
+        else:
+            exp_date = date.fromisoformat(exp)
+        db.add(PantryItem(name=it["name"], category=it.get("category", "imported"), quantity=int(it.get("quantity", 1)), unit=it.get("unit", "count"), expiration_date=exp_date, notes=f"imported ({payload.get('import_type','unknown')})"))
+        added += 1
+    db.commit()
+    return {"added": added}
 
 
 @app.get('/pantry', response_model=list[PantryItemOut])
-def list_items(db: Session = Depends(get_db)):
+def pantry(db: Session = Depends(get_db)):
     return db.query(PantryItem).order_by(PantryItem.expiration_date.asc()).all()

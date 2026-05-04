@@ -1,7 +1,5 @@
 # Pantry AI Chat (Local)
 
-Minimal chat-first pantry assistant using FastAPI + Postgres + Ollama + React.
-
 ## Run
 ```bash
 docker compose down
@@ -10,38 +8,34 @@ docker compose exec ollama ollama pull llama3.2:3b
 docker compose exec ollama ollama pull llava
 ```
 
-Configurable env vars:
-- `OLLAMA_MODEL` (default `llama3.2:3b`)
-- `OLLAMA_BASE_URL` (default `http://ollama:11434`)
+## Chat + scrolling UX
+- Streaming chat response from local Ollama (`/ideas/stream`).
+- You can scroll up while generation continues.
+- Auto-scroll only happens when already near bottom.
+- If new tokens arrive while scrolled up, click **Jump to latest**.
 
-## Faster Ollama chat flow
-- Uses `POST /api/chat`.
-- Adds `keep_alive: "10m"` to keep model warm.
-- Uses speed-focused options:
-  - `num_ctx: 2048`
-  - `num_predict: 500`
-  - `temperature: 0.5`
-- Limits pantry context to top 12 most relevant (earliest expiring) items.
-- Avoids sending old chat history each request.
+## Photo upload (pantry/fridge)
+- Click **📷 Pantry Photo** near chat input.
+- Accepts: jpg/jpeg/png/webp.
+- Shows preview and analyzing status.
+- Backend endpoint: `POST /inventory/from-image`.
+- Uses local Ollama vision model (`llava`) and returns structured JSON.
+- Results are reviewed/edited before confirmation.
 
-## Streaming behavior
-- Frontend calls `POST /ideas/stream`.
-- Backend streams model text as it is generated.
-- User sees message immediately + live token updates.
-- No canned fallback response is used.
-- Real errors are shown in chat.
+## Receipt upload
+- Click **🧾 Receipt** near chat input.
+- Accepts: jpg/jpeg/png/webp (+ pdf placeholder error if unsupported).
+- Backend endpoint: `POST /inventory/from-receipt`.
+- Returns structured items with confidence and metadata when available.
+- Non-food lines are filtered via prompt guidance.
+- User must confirm edits before inventory write.
 
-## Timing logs
-Backend logs include:
-- request start (`[ollama] start ...`)
-- first token time in ms (`[ollama] first_token_ms=...`) for streaming
-- final duration in ms (`[ollama] done duration_ms=...`)
+## Confirm import
+- Endpoint: `POST /inventory/confirm-import`
+- Nothing is added to pantry until user confirms.
 
-## Verify model + endpoint
-- Header shows model status from `/ai/status`.
-- Backend logs should show endpoint and model, e.g.:
-  - `[ollama] endpoint=http://ollama:11434/api/chat model=llama3.2:3b`
-
-## LAN URLs
-- Frontend: `http://192.168.1.99:3000`
-- Backend: `http://192.168.1.99:8000`
+## Local-only + errors
+- No cloud API required.
+- If `llava` is missing, backend returns clear message:
+  `docker compose exec ollama ollama pull llava`
+- Errors are shown directly in chat.
