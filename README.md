@@ -10,32 +10,38 @@ docker compose exec ollama ollama pull llama3.2:3b
 docker compose exec ollama ollama pull llava
 ```
 
-Configure model/base URL via env if needed:
+Configurable env vars:
 - `OLLAMA_MODEL` (default `llama3.2:3b`)
 - `OLLAMA_BASE_URL` (default `http://ollama:11434`)
 
-## Correct Ollama API used
-Backend now uses:
-- `POST /api/chat` (not `/api/generate`)
-- Request includes `system` + `user` messages and `stream: false`
-- Response parsing reads: `response.message.content`
+## Faster Ollama chat flow
+- Uses `POST /api/chat`.
+- Adds `keep_alive: "10m"` to keep model warm.
+- Uses speed-focused options:
+  - `num_ctx: 2048`
+  - `num_predict: 500`
+  - `temperature: 0.5`
+- Limits pantry context to top 12 most relevant (earliest expiring) items.
+- Avoids sending old chat history each request.
 
-If Ollama fails (404/500/timeout), backend returns real errors and frontend shows them directly in chat.
-No canned/fake meal fallback is used.
+## Streaming behavior
+- Frontend calls `POST /ideas/stream`.
+- Backend streams model text as it is generated.
+- User sees message immediately + live token updates.
+- No canned fallback response is used.
+- Real errors are shown in chat.
 
-## Verify real local model usage
-1. In app header, confirm status label like: `Model: llama3.2:3b via Ollama`
-2. Call backend status endpoint:
-   - `GET http://192.168.1.99:8000/ai/status`
-3. In backend logs, verify lines like:
-   - `[ollama] endpoint=http://ollama:11434/api/chat model=llama3.2:3b`
+## Timing logs
+Backend logs include:
+- request start (`[ollama] start ...`)
+- first token time in ms (`[ollama] first_token_ms=...`) for streaming
+- final duration in ms (`[ollama] done duration_ms=...`)
+
+## Verify model + endpoint
+- Header shows model status from `/ai/status`.
+- Backend logs should show endpoint and model, e.g.:
+  - `[ollama] endpoint=http://ollama:11434/api/chat model=llama3.2:3b`
 
 ## LAN URLs
 - Frontend: `http://192.168.1.99:3000`
 - Backend: `http://192.168.1.99:8000`
-
-## Chat usage
-- Click a suggested prompt or type your own request.
-- Press Enter to send, Shift+Enter for newline.
-- `Thinking...` appears while waiting.
-- Assistant response is actual `message.content` from Ollama chat response.

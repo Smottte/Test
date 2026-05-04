@@ -60,26 +60,46 @@ export default function App() {
     if (!prompt || isThinking) return;
     if (!firstMessageSent) setFirstMessageSent(true);
 
-    setMessages((m) => [...m, { role: 'user', text: prompt }]);
+    setMessages((m) => [...m, { role: 'user', text: prompt }, { role: 'assistant', text: 'Thinking...' }]);
     setInput('');
     if (inputRef.current) inputRef.current.style.height = '44px';
     setIsThinking(true);
-    setDebugSource('source: calling Ollama generate endpoint');
+    setDebugSource('source: streaming from Ollama chat endpoint');
 
     try {
-      const res = await fetch(`${API}/ideas/generate`, {
+      const res = await fetch(`${API}/ideas/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ weekly: false, meal_type: mealByTime, prompt })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || `Generate failed (${res.status})`);
+      if (!res.ok || !res.body) {
+        const err = await res.text();
+        throw new Error(err || `Stream failed (${res.status})`);
+      }
 
-      setMessages((m) => [...m, { role: 'assistant', text: data.reply || 'No response content returned.' }]);
-      setDebugSource(`source: ${data.source} model=${data.model}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        full += chunk;
+        setMessages((m) => {
+          const copy = [...m];
+          copy[copy.length - 1] = { role: 'assistant', text: full };
+          return copy;
+        });
+      }
+      setDebugSource(`source: ollama-stream model label in header`);
     } catch (e) {
-      setMessages((m) => [...m, { role: 'error', text: e.message || 'Generation failed.' }]);
-      setDebugSource('source: error (no demo fallback used)');
+      setMessages((m) => {
+        const copy = [...m];
+        if (copy[copy.length - 1]?.text === 'Thinking...') copy.pop();
+        return [...copy, { role: 'error', text: e.message || 'Generation failed.' }];
+      });
+      setDebugSource('source: stream error (no demo fallback used)');
     } finally {
       setIsThinking(false);
     }
@@ -117,7 +137,6 @@ export default function App() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {messages.map((m, i) => <div key={i} style={{ maxWidth: '86%', borderRadius: 16, padding: '12px 14px', whiteSpace: 'pre-wrap', lineHeight: 1.45, ...bubble[m.role] }}>{m.text}</div>)}
-        {isThinking && <div style={{ ...bubble.assistant, maxWidth: '86%', borderRadius: 16, padding: '12px 14px' }}>Thinking...</div>}
         <div ref={endRef} />
       </div>
     </main>
