@@ -1,28 +1,8 @@
-# Self-Hosted Pantry AI Meal Planner
+# Pantry AI Chat (Local)
 
-Local-only planner: FastAPI + Postgres + React + Ollama.
+Self-hosted pantry meal assistant with FastAPI + Postgres + Ollama + React.
 
-## Flow
-1. **Setup inventory first**
-   - Upload fridge/pantry photo.
-   - Upload grocery receipt photo.
-   - App inventories visible items and returns retake guidance (top/middle/bottom shelf etc.) if photo quality/coverage is insufficient.
-2. **Get quick meal squares**
-   - Time-based defaults: 12:00am-10:59am breakfast, 11:00am-1:59pm lunch, 2:00pm-6:59pm dinner, 7:00pm-11:59pm dessert.
-   - Generate 3 quick ideas or weekly plan.
-   - Optional free-text prompt for other meal types.
-3. **Track usage memory**
-   - Mark idea as cooked to log pantry usage and decrement item quantities.
-
-## LAN-safe API connectivity fix
-The frontend now uses this API base URL resolution order:
-1. `REACT_APP_API_BASE_URL`
-2. `REACT_APP_API_URL` (back-compat)
-3. Browser-derived fallback: `http(s)://<current-hostname>:8000`
-
-So when you open `http://192.168.1.99:3000`, the fallback becomes `http://192.168.1.99:8000` automatically.
-
-## Run on your Ubuntu LAN server (192.168.1.99)
+## Run with Docker Compose
 ```bash
 docker compose down
 docker compose up -d --build
@@ -30,38 +10,42 @@ docker compose exec ollama ollama pull llama3.1
 docker compose exec ollama ollama pull llava
 ```
 
-Then test from another LAN device:
+LAN URLs:
 - Frontend: `http://192.168.1.99:3000`
-- Backend health: `http://192.168.1.99:8000/health`
-- Backend docs: `http://192.168.1.99:8000/docs`
+- Backend: `http://192.168.1.99:8000`
+- API docs: `http://192.168.1.99:8000/docs`
 
-## Why this fixes `Failed to fetch`
-- Frontend no longer hardcodes `localhost` for API calls.
-- Backend is already bound to `0.0.0.0` by uvicorn Docker command.
-- Compose publishes backend port `8000:8000` and frontend port `3000:3000`.
-- FastAPI CORS allows localhost + LAN origin patterns.
+## New Chat UI
+- Main experience is chat-first (ChatGPT-style).
+- Enter sends message.
+- Shift+Enter adds newline.
+- Input auto-expands as you type.
+- Loading state shows `Thinking...` while generating.
+- Errors are shown inline in chat.
+- Pantry can be toggled via **View Pantry** button.
+- Simple upload button is present for pantry/fridge photo workflow.
 
-## Main APIs
-- `POST /inventory/from-image` `{ image_base64, context }`
-- `POST /pantry`
-- `GET /pantry`
-- `GET /pantry/expires-soon`
-- `POST /ideas/generate` `{ weekly, meal_type, prompt }`
-- `POST /ideas/mark-cooked` `{ meal_idea_id }`
-- `GET /ideas`
+## Generate flow test
+1. Open `http://192.168.1.99:3000`.
+2. Type: `I want a high protein dinner with chicken and rice.`
+3. Keep meal type as `dinner`, weekly unchecked.
+4. Press **Enter** or click **Send**.
+5. Confirm UI shows `Thinking...`.
+6. Confirm backend call hits `POST /ideas/generate` with:
+   ```json
+   {
+     "weekly": false,
+     "meal_type": "dinner",
+     "prompt": "I want a high protein dinner with chicken and rice."
+   }
+   ```
+7. After response, chat should show generated ideas and refresh from `GET /ideas`.
+8. If backend/Ollama fails, error appears directly in chat.
 
-## Test generate flow (custom prompt)
-1. Open `http://192.168.1.99:3000`
-2. In **Custom Meal Request**, type: `I want a high protein dinner with chicken and rice.`
-3. Leave weekly unchecked (or enable for weekly).
-4. Click **Generate Dinner Ideas**.
-5. You should see:
-   - Button text change to `Generating…`
-   - A status banner `Generating ideas...`
-   - A debug line showing the exact POST payload and endpoint
-6. On success:
-   - Status changes to `Generated successfully...`
-   - Idea cards refresh from `GET /ideas`
-7. On failure:
-   - A visible red error banner appears with backend/Ollama message
-   - If Ollama is slow/unavailable, timeout message appears after 90s
+## API base URL behavior
+Frontend resolves API in this order:
+1. `REACT_APP_API_BASE_URL`
+2. `REACT_APP_API_URL`
+3. fallback: `http(s)://<current-hostname>:8000`
+
+This avoids hardcoded localhost for LAN use.

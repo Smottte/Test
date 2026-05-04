@@ -1,142 +1,158 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000`;
 const API = process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || defaultApiBase;
 
-const photoFor = (hint) => {
-  const map = {
-    breakfast: 'https://images.unsplash.com/photo-1484723091739-30a097e8f929?w=500',
-    lunch: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500',
-    dinner: 'https://images.unsplash.com/photo-1600891964092-4316c288032e?w=500',
-    dessert: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?w=500'
-  };
-  return map[hint] || map.dinner;
+const bubble = {
+  user: { alignSelf: 'flex-end', background: '#111827', color: '#fff' },
+  assistant: { alignSelf: 'flex-start', background: '#f3f4f6', color: '#111827' },
+  error: { alignSelf: 'flex-start', background: '#fee2e2', color: '#991b1b' }
 };
 
+function formatIdeas(ideas) {
+  if (!Array.isArray(ideas) || ideas.length === 0) return 'No ideas returned.';
+  return ideas.map((idea, idx) => {
+    const used = idea.ingredients_used || '[]';
+    const missing = idea.missing_ingredients || '[]';
+    return `${idx + 1}. ${idea.title}\n${idea.description}\nUse: ${used}\nMissing: ${missing}`;
+  }).join('\n\n');
+}
+
 export default function App() {
-  const [items, setItems] = useState([]);
-  const [ideas, setIdeas] = useState([]);
+  const [messages, setMessages] = useState([
+    { role: 'assistant', text: 'Hi! I am your local pantry dinner assistant. Ask me for a meal idea.' }
+  ]);
+  const [input, setInput] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
   const [mealType, setMealType] = useState('dinner');
-  const [customPrompt, setCustomPrompt] = useState('');
-  const [feedback, setFeedback] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
   const [weekly, setWeekly] = useState(false);
-  const [error, setError] = useState('');
-  const [debugMsg, setDebugMsg] = useState('idle');
+  const [pantry, setPantry] = useState([]);
+  const [showPantry, setShowPantry] = useState(false);
+  const [uploadNote, setUploadNote] = useState('');
+  const inputRef = useRef(null);
+  const endRef = useRef(null);
 
-  const defaultType = useMemo(() => {
-    const h = new Date().getHours();
-    if (h >= 11 && h < 14) return 'lunch';
-    if (h >= 14 && h < 19) return 'dinner';
-    if (h >= 19) return 'dessert';
-    return 'breakfast';
-  }, []);
-
-  const load = async () => {
-    const [pantryRes, ideasRes] = await Promise.all([fetch(`${API}/pantry`), fetch(`${API}/ideas`)]);
-    if (!pantryRes.ok || !ideasRes.ok) throw new Error('Unable to load pantry or ideas.');
-    setItems(await pantryRes.json());
-    setIdeas(await ideasRes.json());
+  const loadPantry = async () => {
+    const res = await fetch(`${API}/pantry`);
+    if (!res.ok) throw new Error('Failed to load pantry');
+    setPantry(await res.json());
   };
 
   useEffect(() => {
-    setMealType(defaultType);
-    load().catch((e) => setError(e.message));
-  }, [defaultType]);
+    loadPantry().catch((e) => setMessages((m) => [...m, { role: 'error', text: e.message }]));
+  }, []);
 
-  const handleGenerateSubmit = async (e) => {
-    e.preventDefault();
-    if (isGenerating) return;
-    setError('');
-    setFeedback('Generating ideas...');
-    setDebugMsg('Preparing request');
-    setIsGenerating(true);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isThinking]);
 
-    const payload = {
-      weekly,
-      meal_type: mealType,
-      prompt: customPrompt.trim() ? customPrompt : null
-    };
+  const autoResize = () => {
+    if (!inputRef.current) return;
+    inputRef.current.style.height = 'auto';
+    inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 220)}px`;
+  };
 
-    console.log('POST /ideas/generate payload', payload);
-    setDebugMsg(`POST ${API}/ideas/generate :: ${JSON.stringify(payload)}`);
+  const sendMessage = async () => {
+    const prompt = input.trim();
+    if (!prompt || isThinking) return;
 
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 90000);
+    setMessages((m) => [...m, { role: 'user', text: prompt }]);
+    setInput('');
+    if (inputRef.current) inputRef.current.style.height = '44px';
+    setIsThinking(true);
 
     try {
+      const payload = { weekly, meal_type: mealType, prompt };
       const res = await fetch(`${API}/ideas/generate`, {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(payload),
-        signal: ctrl.signal
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || `Generate failed (${res.status})`);
 
-      let data;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
+      const ideasRes = await fetch(`${API}/ideas`);
+      const ideas = ideasRes.ok ? await ideasRes.json() : data;
+      const latest = Array.isArray(ideas) ? ideas.slice(0, weekly ? 7 : 3) : data;
 
-      if (!res.ok) {
-        throw new Error(data?.detail || `Generate failed (${res.status})`);
-      }
-
-      await load(); // refresh via GET /ideas per requirement
-      const count = Array.isArray(data) ? data.length : 0;
-      setFeedback(`Generated successfully. Added ${count} idea(s).`);
-      setDebugMsg(`Success (${res.status}). Ideas refreshed from GET /ideas.`);
-    } catch (err) {
-      const msg = err?.name === 'AbortError'
-        ? 'Generate request timed out after 90s. Ollama may still be loading.'
-        : (err.message || 'Backend/Ollama error while generating ideas.');
-      setError(msg);
-      setFeedback('');
-      setDebugMsg(`Error: ${msg}`);
-      console.error('Generate error', err);
+      setMessages((m) => [...m, { role: 'assistant', text: formatIdeas(latest) }]);
+    } catch (e) {
+      setMessages((m) => [...m, { role: 'error', text: e.message || 'Failed to generate ideas.' }]);
     } finally {
-      clearTimeout(timer);
-      setIsGenerating(false);
+      setIsThinking(false);
     }
   };
 
-  return <div style={{fontFamily:'Inter, sans-serif', background:'#f7f7fb', minHeight:'100vh', padding:20}}>
-    <h1>🍽️ Pantry AI Planner</h1>
-    <p>API: <code>{API}</code></p>
+  const onInputKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
 
-    <form onSubmit={handleGenerateSubmit} style={{background:'#fff', padding:12, borderRadius:12, marginBottom:16}}>
-      <h3 style={{marginTop:0}}>Custom Meal Request</h3>
-      <textarea value={customPrompt} onChange={(e)=>setCustomPrompt(e.target.value)} placeholder='I want a high protein dinner with chicken and rice.' style={{width:'100%',height:100,borderRadius:8,padding:8,marginBottom:10}} />
-      <div style={{display:'flex', gap:10, alignItems:'center', flexWrap:'wrap'}}>
-        <label>Meal Type:</label>
-        <select value={mealType} onChange={(e)=>setMealType(e.target.value)}>
-          <option value='breakfast'>breakfast</option><option value='lunch'>lunch</option><option value='dinner'>dinner</option><option value='dessert'>dessert</option>
-        </select>
-        <label><input type='checkbox' checked={weekly} onChange={(e)=>setWeekly(e.target.checked)} /> Weekly plan</label>
-        <button type='submit' disabled={isGenerating}>{isGenerating ? 'Generating…' : 'Generate Dinner Ideas'}</button>
-      </div>
-    </form>
+  const onUploadPlaceholder = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadNote(`Selected ${file.name}. Image upload pipeline is ready to wire to /inventory/from-image.`);
+  };
 
-    {feedback && <p style={{background:'#eef7ff', padding:10, borderRadius:8}}>{feedback}</p>}
-    {error && <p style={{background:'#ffecec', color:'#a30000', padding:10, borderRadius:8}}>{error}</p>}
-    <p style={{fontSize:12, color:'#666'}}>Debug: {debugMsg}</p>
-
-    <h2>Quick Access Squares</h2>
-    <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:14}}>
-      {ideas.slice(0,8).map(idea => <div key={idea.id} style={{background:'#fff', borderRadius:14, overflow:'hidden', boxShadow:'0 4px 14px rgba(0,0,0,0.08)'}}>
-        <img src={photoFor(idea.image_hint || idea.meal_type)} alt={idea.title} style={{width:'100%', height:150, objectFit:'cover'}}/>
-        <div style={{padding:12}}>
-          <h3 style={{margin:'4px 0'}}>{idea.title}</h3>
-          <small>{idea.meal_type} {idea.plan_day ? `• ${idea.plan_day}` : ''}</small>
-          <p>{idea.description}</p>
-          <p><b>Use:</b> {idea.ingredients_used}</p>
-          <p><b>Missing:</b> {idea.missing_ingredients}</p>
+  return (
+    <div style={{ minHeight: '100vh', background: '#fafafa', color: '#111827', display: 'flex', flexDirection: 'column' }}>
+      <header style={{ borderBottom: '1px solid #e5e7eb', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <strong>Pantry AI Chat</strong>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => setShowPantry((v) => !v)} style={{ borderRadius: 999, border: '1px solid #d1d5db', padding: '6px 12px', background: '#fff' }}>View Pantry ({pantry.length})</button>
+          <label style={{ borderRadius: 999, border: '1px solid #d1d5db', padding: '6px 12px', background: '#fff', cursor: 'pointer' }}>
+            Upload Pantry Photo
+            <input type='file' accept='image/*' onChange={onUploadPlaceholder} style={{ display: 'none' }} />
+          </label>
         </div>
-      </div>)}
-    </div>
+      </header>
 
-    <h2>Inventory ({items.length})</h2>
-    <ul>{items.map(i => <li key={i.id}>{i.name} - {i.quantity} {i.unit} (exp {i.expiration_date})</li>)}</ul>
-  </div>;
+      {showPantry && <aside style={{ padding: '10px 16px', borderBottom: '1px solid #e5e7eb', background: '#fff' }}>
+        <ul style={{ margin: 0, paddingLeft: 20 }}>
+          {pantry.map((i) => <li key={i.id}>{i.name} — {i.quantity} {i.unit} (exp {i.expiration_date})</li>)}
+        </ul>
+      </aside>}
+      {uploadNote && <div style={{ padding: '8px 16px', fontSize: 13, color: '#4b5563' }}>{uploadNote}</div>}
+
+      <main style={{ flex: 1, width: '100%', maxWidth: 900, margin: '0 auto', padding: '20px 14px 110px', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {messages.map((msg, idx) => (
+            <div key={idx} style={{ maxWidth: '85%', borderRadius: 16, padding: '12px 14px', whiteSpace: 'pre-wrap', lineHeight: 1.45, ...bubble[msg.role] }}>
+              {msg.text}
+            </div>
+          ))}
+          {isThinking && <div style={{ ...bubble.assistant, maxWidth: '85%', borderRadius: 16, padding: '12px 14px' }}>Thinking...</div>}
+          <div ref={endRef} />
+        </div>
+      </main>
+
+      <footer style={{ position: 'fixed', left: 0, right: 0, bottom: 0, borderTop: '1px solid #e5e7eb', background: '#fff' }}>
+        <div style={{ maxWidth: 900, margin: '0 auto', padding: 12 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <select value={mealType} onChange={(e) => setMealType(e.target.value)}>
+              <option value='breakfast'>breakfast</option><option value='lunch'>lunch</option><option value='dinner'>dinner</option><option value='dessert'>dessert</option>
+            </select>
+            <label><input type='checkbox' checked={weekly} onChange={(e) => setWeekly(e.target.checked)} /> Weekly plan</label>
+            <span style={{ fontSize: 12, color: '#6b7280' }}>API: {API}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => { setInput(e.target.value); autoResize(); }}
+              onKeyDown={onInputKeyDown}
+              placeholder='I want a high protein dinner with chicken and rice.'
+              style={{ flex: 1, minHeight: 44, maxHeight: 220, resize: 'none', borderRadius: 14, border: '1px solid #d1d5db', padding: '10px 12px', font: 'inherit' }}
+            />
+            <button onClick={sendMessage} disabled={isThinking} style={{ height: 44, borderRadius: 12, border: 'none', padding: '0 16px', background: '#111827', color: '#fff', opacity: isThinking ? 0.6 : 1 }}>
+              {isThinking ? '...' : 'Send'}
+            </button>
+          </div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>Enter = send, Shift+Enter = new line.</div>
+        </div>
+      </footer>
+    </div>
+  );
 }
