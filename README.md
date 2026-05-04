@@ -35,3 +35,9 @@ docker compose exec ollama ollama pull llava
 - Receipt image: `POST /inventory/from-receipt`
 - Confirm before write: `POST /inventory/confirm-import`
 - No automatic inventory write from uncertain detections.
+
+## Receipt parsing notes
+- Receipt images are sent to `POST /inventory/from-receipt` with base64 image data.
+- Backend attempts Ollama vision parsing with `OLLAMA_VISION_MODEL` (default `llava`).
+- App shows progress states: Uploading receipt → Reading receipt → Finding grocery items → Review detected items.
+- If parsing fails, a clear error is shown; it will not silently add 0 items.

@@ -13,6 +13,7 @@ export default function App() {
   const [analysisType, setAnalysisType] = useState('pantry_photo');
   const [preview, setPreview] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzingStep, setAnalyzingStep] = useState('');
   const chatRef = useRef(null);
 
   const loadPantry = async () => {
@@ -65,23 +66,27 @@ export default function App() {
     const f = e.target.files?.[0]; if (!f) return;
     setPreview(f.type.startsWith('image/') ? URL.createObjectURL(f) : '');
     setAnalyzing(true);
+    setAnalyzingStep('Uploading receipt...');
     setMessages((m)=>[...m,{role:'assistant',text:`Analyzing ${analysisType === 'receipt' ? 'receipt' : 'pantry photo'}...`}]);
     try {
+      if (analysisType === 'receipt') setAnalyzingStep('Reading receipt...');
       if (f.type === 'application/pdf') {
         if (analysisType !== 'receipt') throw new Error('PDF supported only for receipt upload.');
+        setAnalyzingStep('Finding grocery items...');
         const res = await fetch(`${API}/inventory/from-receipt`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ file_type:'pdf' })});
         const data = await res.json(); if (!res.ok) throw new Error(data.detail || 'Receipt parse failed');
-        setAnalysis(data);
+        setAnalysis(data); setAnalyzingStep('Review detected items');
       } else {
         const b64 = await toBase64(f);
         const endpoint = analysisType === 'receipt' ? '/inventory/from-receipt' : '/inventory/from-image';
+        if (analysisType === 'receipt') setAnalyzingStep('Finding grocery items...');
         const res = await fetch(`${API}${endpoint}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ image_base64:b64, file_type:'image', mime_type:f.type })});
         const data = await res.json(); if (!res.ok) throw new Error(data.detail || 'Image parse failed');
-        setAnalysis(data);
+        setAnalysis(data); setAnalyzingStep('Review detected items');
       }
     } catch (err) {
       setMessages((m)=>[...m,{role:'error',text:`Upload failed: ${String(err.message || err)}`}]);
-    } finally { setAnalyzing(false); e.target.value=''; }
+    } finally { setAnalyzing(false); if (!analysis) setAnalyzingStep(''); e.target.value=''; }
   };
 
   const confirmImport = async () => {
@@ -109,10 +114,12 @@ export default function App() {
     {analysis && <section style={{position:'fixed',right:12,bottom:108,width:360,maxHeight:'60vh',overflow:'auto',background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:12}}>
       <b>Review detected items</b>
       {preview && <img src={preview} alt='preview' style={{width:'100%',borderRadius:8,margin:'8px 0'}}/>}
-      {(analysis.items||[]).map((it,idx)=><div key={idx} style={{display:'grid',gridTemplateColumns:'1fr 70px 70px',gap:6,margin:'8px 0'}}>
+      {(analysis.items||[]).map((it,idx)=><div key={idx} style={{display:'grid',gridTemplateColumns:'1fr 60px 70px 100px 120px',gap:6,margin:'8px 0'}}>
         <input value={it.name||''} onChange={(e)=>setAnalysis(a=>{const c={...a}; c.items[idx].name=e.target.value; return {...c};})}/>
         <input value={it.quantity||1} onChange={(e)=>setAnalysis(a=>{const c={...a}; c.items[idx].quantity=e.target.value; return {...c};})}/>
         <input value={it.unit||'count'} onChange={(e)=>setAnalysis(a=>{const c={...a}; c.items[idx].unit=e.target.value; return {...c};})}/>
+        <input placeholder='category' value={it.category||''} onChange={(e)=>setAnalysis(a=>{const c={...a}; c.items[idx].category=e.target.value; return {...c};})}/>
+        <input placeholder='YYYY-MM-DD' value={it.expiration_date||''} onChange={(e)=>setAnalysis(a=>{const c={...a}; c.items[idx].expiration_date=e.target.value; return {...c};})}/>
       </div>)}
       <div style={{display:'flex',gap:8}}><button onClick={confirmImport}>Confirm add</button><button onClick={()=>setAnalysis(null)}>Cancel</button></div>
     </section>}
@@ -122,7 +129,7 @@ export default function App() {
         <div style={{display:'flex',gap:8,marginBottom:8}}>
           <button onClick={()=>openUpload('pantry_photo')}>📷 Pantry Photo</button>
           <button onClick={()=>openUpload('receipt')}>🧾 Receipt</button>
-          {analyzing && <span style={{fontSize:12}}>Analyzing...</span>}
+          {analyzing && <span style={{fontSize:12}}>{analyzingStep || 'Analyzing...'}</span>}
         </div>
         <input ref={fileRef} type='file' accept={ACCEPT} onChange={onPickFile} style={{display:'none'}}/>
         <textarea ref={inputRef} value={input} onChange={(e)=>{setInput(e.target.value);e.target.style.height='auto';e.target.style.height=`${Math.min(e.target.scrollHeight,220)}px`;}} onKeyDown={(e)=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}} style={{width:'100%',minHeight:44,maxHeight:220}} placeholder='Ask for a meal idea...'/>

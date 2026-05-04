@@ -61,6 +61,8 @@ def stream_ideas(req: GenerateRequest, db: Session = Depends(get_db)):
         def empty():
             yield "Your pantry is empty right now. Add items manually, upload a pantry photo, or upload a receipt so I can suggest meals accurately."
         return StreamingResponse(empty(), media_type="text/plain")
+    pantry_names = [i.name for i in items]
+    print(f"[ideas] pantry_item_count={len(items)} pantry_items={pantry_names}")
     pantry = "\n".join([f"- {i.name}: {i.quantity} {i.unit}" for i in items])
     payload = {
         "model": OLLAMA_MODEL,
@@ -132,9 +134,54 @@ def inventory_from_image(payload: dict):
 
 @app.post('/inventory/from-receipt')
 def inventory_from_receipt(payload: dict):
-    if payload.get("file_type") == "pdf":
-        raise HTTPException(status_code=400, detail="PDF extraction not enabled in this build. Please upload receipt as image.")
-    return {"items": [], "warnings": ["Receipt parsing endpoint placeholder."]}
+    file_type = payload.get("file_type", "image")
+    image_b64 = payload.get("image_base64")
+    mime = payload.get("mime_type", "unknown")
+    print(f"[receipt] start file_type={file_type} mime={mime} bytes={len(image_b64 or '')}")
+
+    if file_type == "pdf":
+        print("[receipt] ocr_attempted=false ollama_vision_attempted=false")
+        raise HTTPException(status_code=400, detail="PDF receipt parsing is not enabled in this build yet. Please upload a clear image (jpg/png/webp).")
+    if not image_b64:
+        raise HTTPException(status_code=400, detail="image_base64 required for receipt parsing")
+
+    system = "You are a grocery receipt extraction assistant. Return only strict JSON. Ignore subtotal/tax/total/store-address/cashier/card lines. Return {\"store\":\"string|null\",\"date\":\"string|null\",\"items\":[{\"name\":\"string\",\"quantity\":null,\"unit\":null,\"price\":null,\"category\":\"string\",\"confidence\":0.0,\"notes\":\"string\"}],\"warnings\":[\"string\"]}."
+    body = {
+        "model": OLLAMA_VISION_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": "Parse this grocery receipt image and extract grocery items only.", "images": [image_b64]},
+        ],
+        "stream": False,
+        "keep_alive": "10m",
+    }
+
+    try:
+        print("[receipt] ocr_attempted=false ollama_vision_attempted=true")
+        r = call_chat(body, timeout=180)
+        print(f"[receipt] response_status={r.status_code}")
+        r.raise_for_status()
+        content = r.json().get("message", {}).get("content", "")
+        data = parse_maybe_json(content)
+        if data is None:
+            print("[receipt] parse_failed")
+            raise HTTPException(status_code=422, detail="I could not confidently detect grocery items from this receipt.")
+        items = data.get("items", []) if isinstance(data, dict) else []
+        print(f"[receipt] candidate_items_found={len(items)} items_returned_for_review={len(items)}")
+        if len(items) == 0:
+            data = data if isinstance(data, dict) else {}
+            data.setdefault("warnings", [])
+            data["warnings"].append("I could not confidently detect grocery items from this receipt.")
+        data["method"] = "ollama-vision"
+        data["import_type"] = "receipt"
+        return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        msg = str(e)
+        if "404" in msg or "model" in msg.lower():
+            msg = f"Vision model unavailable. Run: docker compose exec ollama ollama pull llava ({msg})"
+        raise HTTPException(status_code=502, detail=msg)
 
 
 @app.post('/inventory/confirm-import')
