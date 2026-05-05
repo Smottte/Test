@@ -1,48 +1,42 @@
-# Pantry AI Chat (Local)
+# Cheffie
 
-## Start fresh (empty pantry by default)
-- Demo seed is OFF by default (`SEED_DEMO_DATA=false`).
-- To completely reset DB volume:
+Cheffie is a chat-first pantry assistant.
+
+## AI Provider setup
+Create a local `.env` file (do NOT commit it):
+```env
+AI_PROVIDER=openai
+OPENAI_API_KEY=your_api_key_here
+OPENAI_MODEL=gpt-5.4
+OLLAMA_BASE_URL=http://ollama:11434
+OLLAMA_MODEL=qwen3:8b
+OLLAMA_VISION_MODEL=llava
+SEED_DEMO_DATA=false
+```
+
+`ChatGPT Plus/Pro` subscription is separate from OpenAI API billing.
+You need API credits for backend API calls.
+
+## Run
 ```bash
 docker compose down -v
 docker compose up -d --build
 ```
 
-Optional demo seeding (only if you explicitly want it):
-```bash
-SEED_DEMO_DATA=true docker compose up -d --build
-```
+## Switch provider
+- OpenAI (default): `AI_PROVIDER=openai`
+- Local Ollama fallback: `AI_PROVIDER=ollama`
 
-## Models
-```bash
-docker compose exec ollama ollama pull llama3.2:3b
-docker compose exec ollama ollama pull llava
-```
+## Notes on model quality/cost
+- `gpt-5.4` is higher quality.
+- `gpt-5.4-mini` is typically cheaper/faster for lower-cost runs.
 
-## Pantry behavior
-- Pantry starts empty unless `SEED_DEMO_DATA=true`.
-- Use **Clear pantry** button to remove all pantry items.
-- If pantry is empty, app shows a friendly empty-state message.
+## Security
+- API key is backend-only and never sent to frontend.
+- `.env` is gitignored.
+- `.env.example` is committed with blank placeholders only.
 
-## Meal assistant behavior
-- Assistant uses only items actually in pantry.
-- Missing ingredients are called out clearly.
-- For "What can I make?" it returns 3–5 short options first, then asks which to expand.
-- Full detailed recipes are only given after you pick/ask.
-
-## Upload flow
-- Pantry photo: `POST /inventory/from-image`
-- Receipt image: `POST /inventory/from-receipt`
-- Confirm before write: `POST /inventory/confirm-import`
-- No automatic inventory write from uncertain detections.
-
-## Receipt parsing notes
-- Receipt images are sent to `POST /inventory/from-receipt` with base64 image data.
-- Backend attempts Ollama vision parsing with `OLLAMA_VISION_MODEL` (default `llava`).
-- App shows progress states: Uploading receipt → Reading receipt → Finding grocery items → Review detected items.
-- If parsing fails, a clear error is shown; it will not silently add 0 items.
-
-## UI branding
-- App name: **Cheffie**
-- Chat-first polished interface with rounded composer and modern typography.
-- Suggested prompts show before first message and disappear after chat starts.
+## Upload behavior
+- Pantry photo and receipt uploads are parsed in backend using selected AI provider.
+- Items are shown for review before confirm import.
+- Nothing is added until `Confirm add`.

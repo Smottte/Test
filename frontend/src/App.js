@@ -22,12 +22,13 @@ export default function App() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzingStep, setAnalyzingStep] = useState('');
   const [started, setStarted] = useState(false);
+  const [aiStatus, setAiStatus] = useState('Using AI...');
   const chatRef = useRef(null);
   const inputRef = useRef(null);
   const fileRef = useRef(null);
 
   const loadPantry = async () => { try { const r = await fetch(`${API}/pantry`); if (r.ok) setPantry(await r.json()); } catch {} };
-  useEffect(() => { loadPantry(); }, []);
+  useEffect(() => { loadPantry(); fetch(`${API}/ai/status`).then(r=>r.json()).then(s=>setAiStatus(s.provider==='openai'?`Using OpenAI: ${s.openai_model||'gpt-5.4'}`:'Using local AI: Ollama')).catch(()=>setAiStatus('AI status unavailable')); }, []);
   const nearBottom = () => { const el = chatRef.current; return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120; };
   const scrollToBottom = () => { chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' }); setShowJump(false); };
   useEffect(() => { if (nearBottom()) scrollToBottom(); else setShowJump(true); }, [messages]);
@@ -69,7 +70,7 @@ export default function App() {
   return <div className='app'>
     <header className='header'>
       <div className='brand'><div className='logo'>🍽️</div><div><h1>Cheffie</h1><div className='sub'>Your pantry-first cooking assistant</div></div></div>
-      <div className='sub'>Pantry items: {pantry.length}</div>
+      <div className='sub'>{aiStatus} • Pantry items: {pantry.length}</div>
     </header>
 
     <main className='chat' ref={chatRef} onScroll={() => setShowJump(!nearBottom())}>
