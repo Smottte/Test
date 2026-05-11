@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Hunt {
+  id             String      @id @default(cuid())
+  slug           String      @unique
+  title          String
+  difficulty     String
+  durationSeconds Int
+  xpReward       Int
+  dayOffset      Int         @default(0)
+  summary        String
+  objectives     Json
+  affected       Json
+  explanation    String
+  steps          HuntStep[]
+  tables         MockTable[]
+  attempts       HuntAttempt[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}
+
+model HuntStep {
+  id             String @id @default(cuid())
+  huntId         String
+  order          Int
+  question       String
+  expectedKql    String
+  acceptedTerms  Json
+  hint           String
+  explanation    String
+  hunt           Hunt   @relation(fields: [huntId], references: [id], onDelete: Cascade)
+
+  @@unique([huntId, order])
+}
+
+model MockTable {
+  id          String @id @default(cuid())
+  huntId      String
+  name        String
+  description String
+  schema      Json
+  rows        Json
+  hunt        Hunt   @relation(fields: [huntId], references: [id], onDelete: Cascade)
+
+  @@unique([huntId, name])
+}
+
+model UserProgress {
+  id             String   @id @default(cuid())
+  handle         String   @unique
+  streak         Int      @default(0)
+  xp             Int      @default(0)
+  completedHunts Int      @default(0)
+  lastCompleted  DateTime?
+}
+
+model HuntAttempt {
+  id             String   @id @default(cuid())
+  huntId         String
+  score          Int
+  maxScore       Int
+  answers        Json
+  completedAt    DateTime @default(now())
+  hunt           Hunt     @relation(fields: [huntId], references: [id], onDelete: Cascade)
+}
