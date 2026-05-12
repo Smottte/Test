@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { KqlEditor } from "@/components/KqlEditor";
 import { TablePreview } from "@/components/TablePreview";
 import type { Hunt, HuntAttemptResult, StepResult } from "@/lib/types";
 import { evaluateStep } from "@/lib/hunts";
@@ -126,13 +127,7 @@ export function HuntExperience({ hunt }: { hunt: Hunt }) {
         <label htmlFor="query" className="mt-6 block text-sm font-bold uppercase tracking-wide text-slate-400">
           KQL query editor
         </label>
-        <textarea
-          id="query"
-          value={answers[currentStep]}
-          onChange={(event) => updateAnswer(event.target.value)}
-          className="kql-editor mt-2 min-h-72 w-full rounded-2xl border-slate-700 bg-slate-900/95 text-sm text-cyber shadow-inner focus:border-cyber focus:ring-cyber"
-          placeholder="SigninLogs&#10;| where ...&#10;| project ..."
-        />
+        <KqlEditor value={answers[currentStep]} onChange={updateAnswer} tables={hunt.tables} />
 
         <div className="mt-5 flex flex-col gap-3 sm:flex-row">
           <button onClick={submitStep} className="flex-1 rounded-2xl bg-cyber px-5 py-4 font-black text-ink transition hover:bg-teal-300">
