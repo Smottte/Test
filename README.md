@@ -1,14 +1,14 @@
 # KQL Hunter
 
-KQL Hunter is a Duolingo-style daily KQL practice app for SOC analysts and threat hunters. The first release focuses on **Hunt mode**: a short, realistic incident scenario where the user has five minutes to query mock Microsoft security tables, request optional hints, and review a scored incident report.
+KQL Hunter is a Duolingo-style daily KQL practice app for SOC analysts and threat hunters. The first release focuses on **Hunt mode**: a short, realistic incident scenario designed to take about five minutes while letting the user investigate freely without an enforced countdown.
 
 ## Features
 
 - Next.js App Router with TypeScript and Tailwind CSS
 - Responsive dashboard with today's hunt, streak, XP, completed hunts, and difficulty
-- Five-minute daily hunt flow with a KQL editor, timer, optional hints, and step-by-step questions
+- Free-form daily hunt flow with a smart KQL editor, count-up timer, one main objective, and final answer submission
 - Mock Microsoft-style tables including `SigninLogs`, `CloudAppEvents`, and `DeviceNetworkEvents`
-- Results page with scoring, correct/incorrect feedback, ideal KQL, affected entities, and a final incident explanation
+- Results page with correct/incorrect feedback, the correct answer, investigation path, example KQL, affected entities, and a final incident explanation
 - SQLite + Prisma schema and seed workflow backed by JSON hunt data
 - Training mode placeholder for future guided lessons
 
@@ -53,10 +53,10 @@ KQL Hunter is a Duolingo-style daily KQL practice app for SOC analysts and threa
 - `app/` - Next.js App Router pages and global styles
 - `components/` - Reusable dashboard, hunt, table, and results components
 - `lib/` - Hunt data loading, scoring helpers, and shared TypeScript types
-- `prisma/schema.prisma` - SQLite data model for hunts, steps, mock tables, attempts, and progress
+- `prisma/schema.prisma` - SQLite data model for hunts, mock tables, attempts, and progress
 - `prisma/seed/hunts.json` - Realistic daily hunt content and mock security rows
 - `prisma/seed.ts` - JSON-to-SQLite seed script
 
 ## Hunt mode design
 
-Hunt mode intentionally gives minimal guidance. The player receives the incident summary, available table schemas, sample rows, and questions. Optional hints are available but reduce the score for that step. This keeps the easy daily hunt beginner-friendly while still requiring the user to connect sign-ins, cloud events, and endpoint telemetry like a real investigation.
+Hunt mode intentionally gives minimal guidance. The player receives a small SOC case story, one main objective, and the available table schemas. They use the KQL editor to investigate freely, then submit one final answer. Results reveal whether the answer was correct, the correct answer, a short investigation path, and example KQL that could have solved the case.

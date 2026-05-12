@@ -28,7 +28,11 @@ export type Hunt = {
   xpReward: number;
   dayOffset: number;
   summary: string;
+  story: string;
+  objective: string;
   objectives: string[];
+  finalAnswer: string;
+  acceptedAnswers: string[];
   affected: {
     user: string;
     device: string;
@@ -37,6 +41,8 @@ export type Hunt = {
     app: string;
   };
   explanation: string;
+  investigationPath: string;
+  exampleKql: string[];
   tables: MockTable[];
   steps: HuntStep[];
 };
@@ -53,7 +59,11 @@ export type HuntAttemptResult = {
   huntSlug: string;
   score: number;
   maxScore: number;
-  timeRemaining: number;
+  timeSpentSeconds: number;
   completedAt: string;
-  stepResults: StepResult[];
+  query: string;
+  finalAnswer: string;
+  isCorrect: boolean;
+  correctAnswer: string;
+  stepResults?: StepResult[];
 };

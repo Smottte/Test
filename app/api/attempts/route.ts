@@ -14,7 +14,7 @@ export async function POST(request: Request) {
       huntId: hunt.id,
       score: payload.score,
       maxScore: payload.maxScore,
-      answers: payload.stepResults
+      answers: payload
     }
   });
 

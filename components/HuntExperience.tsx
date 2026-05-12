@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { KqlEditor } from "@/components/KqlEditor";
 import { TablePreview } from "@/components/TablePreview";
-import type { Hunt, HuntAttemptResult, StepResult } from "@/lib/types";
-import { evaluateStep } from "@/lib/hunts";
+import type { Hunt, HuntAttemptResult } from "@/lib/types";
+import { evaluateFinalAnswer } from "@/lib/hunts";
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -15,62 +15,27 @@ function formatTime(seconds: number) {
 
 export function HuntExperience({ hunt }: { hunt: Hunt }) {
   const router = useRouter();
-  const [currentStep, setCurrentStep] = useState(0);
-  const [answers, setAnswers] = useState<string[]>(() => hunt.steps.map(() => ""));
-  const [shownHints, setShownHints] = useState<number[]>([]);
-  const [timeRemaining, setTimeRemaining] = useState(hunt.durationSeconds);
+  const [query, setQuery] = useState("");
+  const [finalAnswer, setFinalAnswer] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   useEffect(() => {
-    if (timeRemaining <= 0) {
-      finishHunt();
-      return;
-    }
-
-    const timer = window.setInterval(() => setTimeRemaining((value) => value - 1), 1000);
+    const timer = window.setInterval(() => setElapsedSeconds((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
-  }, [timeRemaining]);
-
-  const step = hunt.steps[currentStep];
-  const progress = useMemo(() => ((currentStep + 1) / hunt.steps.length) * 100, [currentStep, hunt.steps.length]);
-
-  function updateAnswer(value: string) {
-    setAnswers((existing) => existing.map((answer, index) => (index === currentStep ? value : answer)));
-  }
-
-  function showHint() {
-    setShownHints((existing) => (existing.includes(currentStep) ? existing : [...existing, currentStep]));
-  }
-
-  function submitStep() {
-    if (currentStep < hunt.steps.length - 1) {
-      setCurrentStep((value) => value + 1);
-      return;
-    }
-
-    finishHunt();
-  }
+  }, []);
 
   function finishHunt() {
-    const stepResults: StepResult[] = hunt.steps.map((huntStep, index) => {
-      const evaluation = evaluateStep(answers[index] ?? "", huntStep.acceptedTerms);
-      const hintPenalty = shownHints.includes(index) ? 10 : 0;
-      return {
-        order: huntStep.order,
-        answer: answers[index] ?? "",
-        score: Math.max(0, evaluation.score - hintPenalty),
-        maxScore: 100,
-        matchedTerms: evaluation.matchedTerms
-      };
-    });
-
-    const score = Math.round(stepResults.reduce((sum, result) => sum + result.score, 0) / stepResults.length);
+    const evaluation = evaluateFinalAnswer(finalAnswer, hunt.acceptedAnswers);
     const result: HuntAttemptResult = {
       huntSlug: hunt.slug,
-      score,
+      score: evaluation.score,
       maxScore: 100,
-      timeRemaining: Math.max(0, timeRemaining),
+      timeSpentSeconds: elapsedSeconds,
       completedAt: new Date().toISOString(),
-      stepResults
+      query,
+      finalAnswer,
+      isCorrect: evaluation.isCorrect,
+      correctAnswer: hunt.finalAnswer
     };
 
     window.localStorage.setItem(`kql-hunter-result-${hunt.slug}`, JSON.stringify(result));
@@ -91,15 +56,21 @@ export function HuntExperience({ hunt }: { hunt: Hunt }) {
               <p className="text-sm font-bold uppercase tracking-[0.25em] text-cyber">Easy daily hunt</p>
               <h1 className="mt-2 text-3xl font-black text-white">{hunt.title}</h1>
             </div>
-            <div className="rounded-2xl border border-danger/40 bg-danger/10 px-5 py-3 text-center">
-              <p className="text-xs font-bold uppercase text-danger">Timer</p>
-              <p className="text-3xl font-black text-white">{formatTime(timeRemaining)}</p>
+            <div className="rounded-2xl border border-cyber/40 bg-cyber/10 px-5 py-3 text-center">
+              <p className="text-xs font-bold uppercase text-cyber">Time spent</p>
+              <p className="text-3xl font-black text-white">{formatTime(elapsedSeconds)}</p>
             </div>
           </div>
           <p className="mt-5 text-slate-300">{hunt.summary}</p>
-          <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-800">
-            <div className="h-full rounded-full bg-cyber transition-all" style={{ width: `${progress}%` }} />
+          <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+            <p className="text-sm font-bold uppercase tracking-wide text-slate-500">Case story</p>
+            <p className="mt-2 text-slate-200">{hunt.story}</p>
           </div>
+          <div className="mt-4 rounded-2xl border border-violet/30 bg-violet/10 p-4">
+            <p className="text-sm font-bold uppercase tracking-wide text-violet">Main objective</p>
+            <p className="mt-2 text-lg font-black text-white">{hunt.objective}</p>
+          </div>
+          <p className="mt-4 text-sm text-slate-400">Designed to take about 5 minutes, but there is no time limit.</p>
         </div>
 
         <div className="space-y-3">
@@ -111,32 +82,38 @@ export function HuntExperience({ hunt }: { hunt: Hunt }) {
 
       <section className="rounded-[2rem] border border-white/10 bg-slate-950/80 p-5 shadow-glow lg:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-slate-300">
-            Question {step.order} of {hunt.steps.length}
-          </span>
-          <span className="text-sm text-slate-400">Optional hints cost 10 points on that step.</span>
+          <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-slate-300">Free hunt mode</span>
+          <span className="text-sm text-slate-400">Investigate freely, then submit one final answer.</span>
         </div>
 
-        <h2 className="mt-5 text-2xl font-black text-white">{step.question}</h2>
-        {shownHints.includes(currentStep) ? (
-          <div className="mt-4 rounded-2xl border border-cyber/30 bg-cyber/10 p-4 text-sm text-teal-100">
-            <strong>Hint:</strong> {step.hint}
-          </div>
-        ) : null}
+        <h2 className="mt-5 text-2xl font-black text-white">Build your KQL investigation</h2>
+        <p className="mt-2 text-slate-400">
+          Use the available schemas to query, pivot, and narrow the incident down. Autocomplete only helps with KQL syntax and available fields.
+        </p>
 
         <label htmlFor="query" className="mt-6 block text-sm font-bold uppercase tracking-wide text-slate-400">
           KQL query editor
         </label>
-        <KqlEditor value={answers[currentStep]} onChange={updateAnswer} tables={hunt.tables} />
+        <KqlEditor value={query} onChange={setQuery} tables={hunt.tables} />
 
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-          <button onClick={submitStep} className="flex-1 rounded-2xl bg-cyber px-5 py-4 font-black text-ink transition hover:bg-teal-300">
-            {currentStep === hunt.steps.length - 1 ? "Finish hunt" : "Submit answer"}
-          </button>
-          <button onClick={showHint} className="rounded-2xl border border-slate-700 px-5 py-4 font-bold text-slate-200 transition hover:border-cyber hover:text-cyber">
-            Hint
-          </button>
-        </div>
+        <label htmlFor="final-answer" className="mt-6 block text-sm font-bold uppercase tracking-wide text-slate-400">
+          Final answer
+        </label>
+        <input
+          id="final-answer"
+          value={finalAnswer}
+          onChange={(event) => setFinalAnswer(event.target.value)}
+          className="mt-2 w-full rounded-2xl border-slate-700 bg-slate-900/95 text-sm text-white shadow-inner placeholder:text-slate-600 focus:border-cyber focus:ring-cyber"
+          placeholder="Enter the single answer to the main objective"
+        />
+
+        <button
+          onClick={finishHunt}
+          className="mt-5 w-full rounded-2xl bg-cyber px-5 py-4 font-black text-ink transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!finalAnswer.trim()}
+        >
+          Submit final answer
+        </button>
       </section>
     </div>
   );

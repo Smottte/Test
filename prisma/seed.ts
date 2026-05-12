@@ -1,6 +1,15 @@
 import { PrismaClient } from "@prisma/client";
 import hunts from "./seed/hunts.json";
 
+type SeedStep = {
+  order: number;
+  question: string;
+  expectedKql: string;
+  acceptedTerms: string[];
+  hint: string;
+  explanation: string;
+};
+
 const prisma = new PrismaClient();
 
 async function main() {
@@ -19,11 +28,17 @@ async function main() {
         xpReward: hunt.xpReward,
         dayOffset: hunt.dayOffset,
         summary: hunt.summary,
+        story: hunt.story,
+        objective: hunt.objective,
         objectives: hunt.objectives,
+        finalAnswer: hunt.finalAnswer,
+        acceptedAnswers: hunt.acceptedAnswers,
         affected: hunt.affected,
         explanation: hunt.explanation,
+        investigationPath: hunt.investigationPath,
+        exampleKql: hunt.exampleKql,
         steps: {
-          create: hunt.steps.map((step) => ({
+          create: (hunt.steps as SeedStep[]).map((step) => ({
             order: step.order,
             question: step.question,
             expectedKql: step.expectedKql,

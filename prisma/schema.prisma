@@ -16,9 +16,15 @@ model Hunt {
   xpReward       Int
   dayOffset      Int         @default(0)
   summary        String
+  story          String
+  objective      String
   objectives     Json
+  finalAnswer    String
+  acceptedAnswers Json
   affected       Json
   explanation    String
+  investigationPath String
+  exampleKql     Json
   steps          HuntStep[]
   tables         MockTable[]
   attempts       HuntAttempt[]

@@ -14,7 +14,7 @@ export default function DashboardPage() {
           </div>
           <h1 className="text-4xl font-black tracking-tight text-white sm:text-6xl">Hunt like a SOC analyst.</h1>
           <p className="mt-4 max-w-2xl text-lg text-slate-300">
-            Five-minute, realistic Microsoft-style security investigations that teach you to pivot through logs, form hypotheses, and write better KQL.
+            Short, realistic Microsoft-style security investigations designed for about five minutes of free hunting without an enforced timer.
           </p>
         </div>
         <Link href={`/hunt/${hunt.slug}`} className="rounded-2xl bg-cyber px-6 py-4 text-center text-lg font-black text-ink shadow-glow transition hover:-translate-y-0.5 hover:bg-teal-300">
@@ -33,7 +33,7 @@ export default function DashboardPage() {
         <article className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-6">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full bg-violet/20 px-3 py-1 text-sm font-bold text-violet">Hunt mode</span>
-            <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-slate-300">5 minutes</span>
+            <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-slate-300">≈5 min case</span>
             <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-slate-300">{hunt.tables.length} mock tables</span>
           </div>
           <h2 className="mt-5 text-3xl font-black text-white">{hunt.title}</h2>
@@ -51,7 +51,7 @@ export default function DashboardPage() {
           <span className="rounded-full bg-slate-800 px-3 py-1 text-sm font-bold text-slate-300">Training mode</span>
           <h2 className="mt-5 text-2xl font-black text-white">Guided lessons are coming next.</h2>
           <p className="mt-3 text-slate-400">
-            Training mode will break KQL into drills with walkthroughs. For now, KQL Hunter focuses on the easy daily hunt backbone: realistic data, optional hints, scoring, and incident results.
+            Training mode will break KQL into drills with walkthroughs. For now, KQL Hunter focuses on the easy daily hunt backbone: realistic data, schema-aware querying, a final answer, and incident results.
           </p>
         </aside>
       </section>
