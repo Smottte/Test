@@ -6,6 +6,7 @@ import { KqlEditor } from "@/components/KqlEditor";
 import { TablePreview } from "@/components/TablePreview";
 import type { Hunt, HuntAttemptResult } from "@/lib/types";
 import { evaluateFinalAnswer } from "@/lib/hunts";
+import { runKqlQuery, type QueryResult } from "@/lib/kql";
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -13,16 +14,91 @@ function formatTime(seconds: number) {
   return `${minutes}:${remainder}`;
 }
 
+function formatValue(value: unknown) {
+  if (typeof value === "object" && value !== null) {
+    return JSON.stringify(value);
+  }
+
+  return String(value ?? "");
+}
+
+function QueryResults({ result }: { result: QueryResult | null }) {
+  if (!result) {
+    return (
+      <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+        <p className="text-sm font-bold uppercase tracking-wide text-slate-500">Query results</p>
+        <p className="mt-2 text-sm text-slate-400">Run a query to inspect matching rows from the mock SOC data.</p>
+      </div>
+    );
+  }
+
+  if (result.error) {
+    return (
+      <div className="mt-5 rounded-2xl border border-danger/30 bg-danger/10 p-5">
+        <p className="text-sm font-bold uppercase tracking-wide text-danger">Query error</p>
+        <p className="mt-2 text-sm text-red-100">{result.error}</p>
+      </div>
+    );
+  }
+
+  if (!result.rows.length) {
+    return (
+      <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+        <p className="text-sm font-bold uppercase tracking-wide text-slate-500">Query results</p>
+        <p className="mt-2 text-sm text-slate-300">No results found.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm font-bold uppercase tracking-wide text-slate-500">Query results</p>
+        <span className="rounded-full bg-cyber/10 px-3 py-1 text-xs font-bold text-cyber">{result.rows.length} rows</span>
+      </div>
+      <div className="mt-4 max-h-80 overflow-auto rounded-xl border border-slate-800">
+        <table className="min-w-full text-left text-xs">
+          <thead className="sticky top-0 bg-slate-950 text-slate-300">
+            <tr>
+              {result.columns.map((column) => (
+                <th key={column} className="whitespace-nowrap px-3 py-2 font-bold">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800 text-slate-300">
+            {result.rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {result.columns.map((column) => (
+                  <td key={column} className="max-w-64 truncate whitespace-nowrap px-3 py-2">
+                    {formatValue(row[column])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function HuntExperience({ hunt }: { hunt: Hunt }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [finalAnswer, setFinalAnswer] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setElapsedSeconds((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  function runQuery() {
+    setQueryResult(runKqlQuery(query, hunt.tables));
+  }
 
   function finishHunt() {
     const evaluation = evaluateFinalAnswer(finalAnswer, hunt.acceptedAnswers);
@@ -95,6 +171,16 @@ export function HuntExperience({ hunt }: { hunt: Hunt }) {
           KQL query editor
         </label>
         <KqlEditor value={query} onChange={setQuery} tables={hunt.tables} />
+
+        <button
+          onClick={runQuery}
+          className="mt-4 rounded-2xl border border-cyber/50 bg-cyber/10 px-5 py-3 font-black text-cyber transition hover:bg-cyber hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!query.trim()}
+        >
+          Run Query
+        </button>
+
+        <QueryResults result={queryResult} />
 
         <label htmlFor="final-answer" className="mt-6 block text-sm font-bold uppercase tracking-wide text-slate-400">
           Final answer

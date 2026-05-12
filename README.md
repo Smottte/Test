@@ -6,7 +6,7 @@ KQL Hunter is a Duolingo-style daily KQL practice app for SOC analysts and threa
 
 - Next.js App Router with TypeScript and Tailwind CSS
 - Responsive dashboard with today's hunt, streak, XP, completed hunts, and difficulty
-- Free-form daily hunt flow with a smart KQL editor, count-up timer, one main objective, and final answer submission
+- Free-form daily hunt flow with a smart KQL editor, Run Query button, query results table, count-up timer, one main objective, and final answer submission
 - Mock Microsoft-style tables including `SigninLogs`, `CloudAppEvents`, and `DeviceNetworkEvents`
 - Results page with correct/incorrect feedback, the correct answer, investigation path, example KQL, affected entities, and a final incident explanation
 - SQLite + Prisma schema and seed workflow backed by JSON hunt data
@@ -59,4 +59,4 @@ KQL Hunter is a Duolingo-style daily KQL practice app for SOC analysts and threa
 
 ## Hunt mode design
 
-Hunt mode intentionally gives minimal guidance. The player receives a small SOC case story, one main objective, and the available table schemas. They use the KQL editor to investigate freely, then submit one final answer. Results reveal whether the answer was correct, the correct answer, a short investigation path, and example KQL that could have solved the case.
+Hunt mode intentionally gives minimal guidance. The player receives a small SOC case story, one main objective, and the available table schemas. They use the KQL editor and Run Query button to inspect matching mock rows, pivot through the data, then submit one final answer. Results reveal whether the answer was correct, the correct answer, a short investigation path, and example KQL that could have solved the case.
