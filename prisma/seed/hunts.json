@@ -1,0 +1,280 @@
+[
+  {
+    "slug": "day-1-oauth-impossible-travel",
+    "title": "Impossible Travel and Suspicious OAuth Consent",
+    "difficulty": "Easy",
+    "durationSeconds": 300,
+    "xpReward": 50,
+    "dayOffset": 0,
+    "summary": "A short SOC case about a suspicious browser redirect, risky sign-in, and follow-on cloud activity.",
+    "objectives": [
+      "Identify the attacker IP address from the available Microsoft-style logs."
+    ],
+    "affected": {
+      "user": "mia.chen@contoso.com",
+      "device": "FIN-LAP-014",
+      "ip": "185.225.69.44",
+      "file": "Q4_Payroll_Adjustments.xlsx",
+      "app": "Invoice Reader Pro"
+    },
+    "explanation": "Mia Chen clicked a suspicious link from FIN-LAP-014. The same external IP, 185.225.69.44, appears in a successful high-risk sign-in, OAuth app consent, SharePoint download activity, and endpoint network telemetry. The activity suggests the attacker used that IP to access Microsoft 365 and trigger follow-on cloud actions.",
+    "tables": [
+      {
+        "name": "SigninLogs",
+        "description": "Microsoft Entra sign-in events for users and applications.",
+        "schema": [
+          {
+            "column": "TimeGenerated",
+            "type": "datetime",
+            "description": "UTC event time"
+          },
+          {
+            "column": "UserPrincipalName",
+            "type": "string",
+            "description": "Signed-in user"
+          },
+          {
+            "column": "IPAddress",
+            "type": "string",
+            "description": "Source IP address"
+          },
+          {
+            "column": "Location",
+            "type": "string",
+            "description": "Geo-enriched location"
+          },
+          {
+            "column": "AppDisplayName",
+            "type": "string",
+            "description": "Application target"
+          },
+          {
+            "column": "ResultType",
+            "type": "int",
+            "description": "0 means success"
+          },
+          {
+            "column": "RiskLevelDuringSignIn",
+            "type": "string",
+            "description": "Entra ID risk level"
+          },
+          {
+            "column": "DeviceDetail",
+            "type": "dynamic",
+            "description": "Browser, OS, and device name"
+          }
+        ],
+        "rows": [
+          {
+            "TimeGenerated": "2026-05-11T13:02:21Z",
+            "UserPrincipalName": "mia.chen@contoso.com",
+            "IPAddress": "52.143.84.10",
+            "Location": "Seattle, US",
+            "AppDisplayName": "Office 365",
+            "ResultType": 0,
+            "RiskLevelDuringSignIn": "none",
+            "DeviceDetail": {
+              "displayName": "FIN-LAP-014",
+              "browser": "Edge",
+              "operatingSystem": "Windows 11"
+            }
+          },
+          {
+            "TimeGenerated": "2026-05-11T13:11:44Z",
+            "UserPrincipalName": "mia.chen@contoso.com",
+            "IPAddress": "185.225.69.44",
+            "Location": "Amsterdam, NL",
+            "AppDisplayName": "Office 365",
+            "ResultType": 0,
+            "RiskLevelDuringSignIn": "high",
+            "DeviceDetail": {
+              "displayName": "Unknown",
+              "browser": "Chrome",
+              "operatingSystem": "Windows 10"
+            }
+          },
+          {
+            "TimeGenerated": "2026-05-11T13:18:30Z",
+            "UserPrincipalName": "noah.patel@contoso.com",
+            "IPAddress": "52.143.84.10",
+            "Location": "Seattle, US",
+            "AppDisplayName": "Office 365",
+            "ResultType": 0,
+            "RiskLevelDuringSignIn": "none",
+            "DeviceDetail": {
+              "displayName": "ENG-LAP-022",
+              "browser": "Edge",
+              "operatingSystem": "Windows 11"
+            }
+          },
+          {
+            "TimeGenerated": "2026-05-11T13:23:12Z",
+            "UserPrincipalName": "mia.chen@contoso.com",
+            "IPAddress": "185.225.69.44",
+            "Location": "Amsterdam, NL",
+            "AppDisplayName": "Invoice Reader Pro",
+            "ResultType": 0,
+            "RiskLevelDuringSignIn": "high",
+            "DeviceDetail": {
+              "displayName": "Unknown",
+              "browser": "Chrome",
+              "operatingSystem": "Windows 10"
+            }
+          }
+        ]
+      },
+      {
+        "name": "CloudAppEvents",
+        "description": "Microsoft Defender for Cloud Apps activity records.",
+        "schema": [
+          {
+            "column": "TimeGenerated",
+            "type": "datetime",
+            "description": "UTC event time"
+          },
+          {
+            "column": "AccountUpn",
+            "type": "string",
+            "description": "User performing the activity"
+          },
+          {
+            "column": "IPAddress",
+            "type": "string",
+            "description": "Source IP address"
+          },
+          {
+            "column": "Application",
+            "type": "string",
+            "description": "Cloud application"
+          },
+          {
+            "column": "ActionType",
+            "type": "string",
+            "description": "Activity type"
+          },
+          {
+            "column": "ObjectName",
+            "type": "string",
+            "description": "File, app, or object touched"
+          },
+          {
+            "column": "RawEventData",
+            "type": "dynamic",
+            "description": "Provider-specific details"
+          }
+        ],
+        "rows": [
+          {
+            "TimeGenerated": "2026-05-11T13:24:05Z",
+            "AccountUpn": "mia.chen@contoso.com",
+            "IPAddress": "185.225.69.44",
+            "Application": "Microsoft 365",
+            "ActionType": "Consent to application",
+            "ObjectName": "Invoice Reader Pro",
+            "RawEventData": {
+              "Scopes": "Mail.Read Files.Read.All offline_access",
+              "ConsentType": "User"
+            }
+          },
+          {
+            "TimeGenerated": "2026-05-11T13:27:31Z",
+            "AccountUpn": "mia.chen@contoso.com",
+            "IPAddress": "185.225.69.44",
+            "Application": "SharePoint",
+            "ActionType": "FileDownloaded",
+            "ObjectName": "Q4_Payroll_Adjustments.xlsx",
+            "RawEventData": {
+              "SiteUrl": "https://contoso.sharepoint.com/sites/Finance"
+            }
+          },
+          {
+            "TimeGenerated": "2026-05-11T13:29:09Z",
+            "AccountUpn": "ava.king@contoso.com",
+            "IPAddress": "52.143.84.11",
+            "Application": "SharePoint",
+            "ActionType": "FileAccessed",
+            "ObjectName": "Benefits_FAQ.docx",
+            "RawEventData": {
+              "SiteUrl": "https://contoso.sharepoint.com/sites/HR"
+            }
+          }
+        ]
+      },
+      {
+        "name": "DeviceNetworkEvents",
+        "description": "Defender for Endpoint network connections from managed devices.",
+        "schema": [
+          {
+            "column": "TimeGenerated",
+            "type": "datetime",
+            "description": "UTC event time"
+          },
+          {
+            "column": "DeviceName",
+            "type": "string",
+            "description": "Endpoint name"
+          },
+          {
+            "column": "InitiatingProcessAccountUpn",
+            "type": "string",
+            "description": "Signed-in user for the process"
+          },
+          {
+            "column": "RemoteIP",
+            "type": "string",
+            "description": "Destination IP"
+          },
+          {
+            "column": "RemotePort",
+            "type": "int",
+            "description": "Destination port"
+          },
+          {
+            "column": "InitiatingProcessFileName",
+            "type": "string",
+            "description": "Process name"
+          }
+        ],
+        "rows": [
+          {
+            "TimeGenerated": "2026-05-11T13:10:58Z",
+            "DeviceName": "FIN-LAP-014",
+            "InitiatingProcessAccountUpn": "mia.chen@contoso.com",
+            "RemoteIP": "185.225.69.44",
+            "RemotePort": 443,
+            "InitiatingProcessFileName": "msedge.exe"
+          },
+          {
+            "TimeGenerated": "2026-05-11T13:12:02Z",
+            "DeviceName": "FIN-LAP-014",
+            "InitiatingProcessAccountUpn": "mia.chen@contoso.com",
+            "RemoteIP": "20.190.160.12",
+            "RemotePort": 443,
+            "InitiatingProcessFileName": "msedge.exe"
+          },
+          {
+            "TimeGenerated": "2026-05-11T13:22:47Z",
+            "DeviceName": "ENG-LAP-022",
+            "InitiatingProcessAccountUpn": "noah.patel@contoso.com",
+            "RemoteIP": "13.107.42.16",
+            "RemotePort": 443,
+            "InitiatingProcessFileName": "teams.exe"
+          }
+        ]
+      }
+    ],
+    "steps": [],
+    "story": "An employee reported that their browser opened a strange page after clicking an email link. A few minutes later, Defender logged suspicious activity tied to their device and Microsoft 365 activity. Use the available logs to determine which external IP address was used by the attacker.",
+    "objective": "What was the attacker's IP address?",
+    "finalAnswer": "185.225.69.44",
+    "acceptedAnswers": [
+      "185.225.69.44"
+    ],
+    "investigationPath": "Start with high-risk successful sign-ins in SigninLogs, then pivot on the same user and IP into CloudAppEvents to confirm suspicious OAuth consent and file download activity. DeviceNetworkEvents shows the same IP was contacted from FIN-LAP-014 by the affected user, tying the browser activity back to the endpoint.",
+    "exampleKql": [
+      "SigninLogs\n| where ResultType == 0 and RiskLevelDuringSignIn == \"high\"\n| project TimeGenerated, UserPrincipalName, IPAddress, Location, AppDisplayName",
+      "CloudAppEvents\n| where AccountUpn == \"mia.chen@contoso.com\"\n| project TimeGenerated, AccountUpn, IPAddress, Application, ActionType, ObjectName",
+      "DeviceNetworkEvents\n| where InitiatingProcessAccountUpn == \"mia.chen@contoso.com\"\n| project TimeGenerated, DeviceName, RemoteIP, RemotePort, InitiatingProcessFileName"
+    ]
+  }
+]
